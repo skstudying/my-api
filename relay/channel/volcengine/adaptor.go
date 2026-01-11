@@ -157,6 +157,41 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		c.Request.Header.Set("Content-Type", writer.FormDataContentType())
 		return bytes.NewReader(requestBody.Bytes()), nil
 
+	case constant.RelayModeImagesGenerations:
+		// 处理图像生成请求，包含 Extra 字段中的参数
+		requestMap := make(map[string]interface{})
+
+		// 添加基本字段
+		requestMap["model"] = request.Model
+		requestMap["prompt"] = request.Prompt
+
+		// 添加可选的基本字段
+		if request.Size != "" {
+			requestMap["size"] = request.Size
+		}
+		if request.ResponseFormat != "" {
+			requestMap["response_format"] = request.ResponseFormat
+		}
+		if request.Quality != "" {
+			requestMap["quality"] = request.Quality
+		}
+		if request.N > 0 {
+			requestMap["n"] = request.N
+		}
+		if request.Watermark != nil {
+			requestMap["watermark"] = *request.Watermark
+		}
+
+		// 添加 Extra 字段中的参数（包括 image、guidance_scale 等）
+		for k, v := range request.Extra {
+			var value interface{}
+			if err := json.Unmarshal(v, &value); err == nil {
+				requestMap[k] = value
+			}
+		}
+
+		return requestMap, nil
+
 	default:
 		return request, nil
 	}

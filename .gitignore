@@ -12,3 +12,8 @@ one-api
 .DS_Store
 tiktoken_cache
 .eslintcache
+
+# 编译产物 - Go 可执行文件
+grok-api
+volc-api
+new-api

@@ -4,5 +4,7 @@ go build -o volc-api
 
 chmod +x volc-api
 nohup ./volc-api > app.log 2>&1 &
+nohup ./volc-api > /dev/null 2>&1 &
+nohup python bot.py > /dev/null 2>&1 &
 
 ps aux | grep volc-api
