@@ -2,10 +2,11 @@ package dto
 
 import (
 	"encoding/json"
-	"one-api/common"
-	"one-api/types"
 	"reflect"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,6 +28,10 @@ type ImageRequest struct {
 	PartialImages     json.RawMessage `json:"partial_images,omitempty"`
 	// Stream            bool            `json:"stream,omitempty"`
 	Watermark *bool `json:"watermark,omitempty"`
+	// zhipu 4v
+	WatermarkEnabled json.RawMessage `json:"watermark_enabled,omitempty"`
+	UserId           json.RawMessage `json:"user_id,omitempty"`
+	Image            json.RawMessage `json:"image,omitempty"`
 	// 用匿名参数接收额外参数
 	Extra map[string]json.RawMessage `json:"-"`
 }
@@ -57,6 +62,32 @@ func (i *ImageRequest) UnmarshalJSON(data []byte) error {
 		}
 	}
 	return nil
+}
+
+// 序列化时需要重新把字段平铺
+func (r ImageRequest) MarshalJSON() ([]byte, error) {
+	// 将已定义字段转为 map
+	type Alias ImageRequest
+	alias := Alias(r)
+	base, err := common.Marshal(alias)
+	if err != nil {
+		return nil, err
+	}
+
+	var baseMap map[string]json.RawMessage
+	if err := common.Unmarshal(base, &baseMap); err != nil {
+		return nil, err
+	}
+
+	// 不能合并ExtraFields！！！！！！！！
+	// 合并 ExtraFields
+	//for k, v := range r.Extra {
+	//	if _, exists := baseMap[k]; !exists {
+	//		baseMap[k] = v
+	//	}
+	//}
+
+	return common.Marshal(baseMap)
 }
 
 func GetJSONFieldNames(t reflect.Type) map[string]struct{} {
@@ -136,9 +167,9 @@ func (i *ImageRequest) SetModelName(modelName string) {
 }
 
 type ImageResponse struct {
-	Data    []ImageData `json:"data"`
-	Created int64       `json:"created"`
-	Extra   any         `json:"extra,omitempty"`
+	Data     []ImageData     `json:"data"`
+	Created  int64           `json:"created"`
+	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 type ImageData struct {
 	Url           string `json:"url"`

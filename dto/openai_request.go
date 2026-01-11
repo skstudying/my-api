@@ -3,9 +3,10 @@ package dto
 import (
 	"encoding/json"
 	"fmt"
-	"one-api/common"
-	"one-api/types"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,6 +23,8 @@ type FormatJsonSchema struct {
 	Strict      json.RawMessage `json:"strict,omitempty"`
 }
 
+// GeneralOpenAIRequest represents a general request structure for OpenAI-compatible APIs.
+// 参数增加规范：无引用的参数必须使用json.RawMessage类型，并添加omitempty标签
 type GeneralOpenAIRequest struct {
 	Model               string            `json:"model,omitempty"`
 	Messages            []Message         `json:"messages,omitempty"`
@@ -57,6 +60,19 @@ type GeneralOpenAIRequest struct {
 	Dimensions          int               `json:"dimensions,omitempty"`
 	Modalities          json.RawMessage   `json:"modalities,omitempty"`
 	Audio               json.RawMessage   `json:"audio,omitempty"`
+	// 安全标识符，用于帮助 OpenAI 检测可能违反使用政策的应用程序用户
+	// 注意：此字段会向 OpenAI 发送用户标识信息，默认过滤以保护用户隐私
+	SafetyIdentifier string `json:"safety_identifier,omitempty"`
+	// Whether or not to store the output of this chat completion request for use in our model distillation or evals products.
+	// 是否存储此次请求数据供 OpenAI 用于评估和优化产品
+	// 注意：默认过滤此字段以保护用户隐私，但过滤后可能导致 Codex 无法正常使用
+	Store json.RawMessage `json:"store,omitempty"`
+	// Used by OpenAI to cache responses for similar requests to optimize your cache hit rates. Replaces the user field
+	PromptCacheKey       string          `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention json.RawMessage `json:"prompt_cache_retention,omitempty"`
+	LogitBias            json.RawMessage `json:"logit_bias,omitempty"`
+	Metadata             json.RawMessage `json:"metadata,omitempty"`
+	Prediction           json.RawMessage `json:"prediction,omitempty"`
 	// gemini
 	ExtraBody json.RawMessage `json:"extra_body,omitempty"`
 	//xai
@@ -68,13 +84,21 @@ type GeneralOpenAIRequest struct {
 	Reasoning json.RawMessage `json:"reasoning,omitempty"`
 	// Ali Qwen Params
 	VlHighResolutionImages json.RawMessage `json:"vl_high_resolution_images,omitempty"`
-	EnableThinking         any             `json:"enable_thinking,omitempty"`
+	EnableThinking         json.RawMessage `json:"enable_thinking,omitempty"`
+	ChatTemplateKwargs     json.RawMessage `json:"chat_template_kwargs,omitempty"`
+	EnableSearch           json.RawMessage `json:"enable_search,omitempty"`
 	// ollama Params
 	Think json.RawMessage `json:"think,omitempty"`
 	// baidu v2
 	WebSearch json.RawMessage `json:"web_search,omitempty"`
 	// doubao,zhipu_v4
 	THINKING json.RawMessage `json:"thinking,omitempty"`
+	// pplx Params
+	SearchDomainFilter     json.RawMessage `json:"search_domain_filter,omitempty"`
+	SearchRecencyFilter    string          `json:"search_recency_filter,omitempty"`
+	ReturnImages           bool            `json:"return_images,omitempty"`
+	ReturnRelatedQuestions bool            `json:"return_related_questions,omitempty"`
+	SearchMode             string          `json:"search_mode,omitempty"`
 }
 
 func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
@@ -213,10 +237,13 @@ func (r *GeneralOpenAIRequest) GetSystemRoleName() string {
 	return "system"
 }
 
+const CustomType = "custom"
+
 type ToolCallRequest struct {
 	ID       string          `json:"id,omitempty"`
 	Type     string          `json:"type"`
-	Function FunctionRequest `json:"function"`
+	Function FunctionRequest `json:"function,omitempty"`
+	Custom   json.RawMessage `json:"custom,omitempty"`
 }
 
 type FunctionRequest struct {
@@ -772,21 +799,24 @@ type OpenAIResponsesRequest struct {
 	Instructions       json.RawMessage `json:"instructions,omitempty"`
 	MaxOutputTokens    uint            `json:"max_output_tokens,omitempty"`
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
-	ParallelToolCalls  bool            `json:"parallel_tool_calls,omitempty"`
+	ParallelToolCalls  json.RawMessage `json:"parallel_tool_calls,omitempty"`
 	PreviousResponseID string          `json:"previous_response_id,omitempty"`
 	Reasoning          *Reasoning      `json:"reasoning,omitempty"`
-	ServiceTier        string          `json:"service_tier,omitempty"`
-	Store              bool            `json:"store,omitempty"`
-	Stream             bool            `json:"stream,omitempty"`
-	Temperature        float64         `json:"temperature,omitempty"`
-	Text               json.RawMessage `json:"text,omitempty"`
-	ToolChoice         json.RawMessage `json:"tool_choice,omitempty"`
-	Tools              json.RawMessage `json:"tools,omitempty"` // 需要处理的参数很少，MCP 参数太多不确定，所以用 map
-	TopP               float64         `json:"top_p,omitempty"`
-	Truncation         string          `json:"truncation,omitempty"`
-	User               string          `json:"user,omitempty"`
-	MaxToolCalls       uint            `json:"max_tool_calls,omitempty"`
-	Prompt             json.RawMessage `json:"prompt,omitempty"`
+	// 服务层级字段，用于指定 API 服务等级。允许透传可能导致实际计费高于预期，默认应过滤
+	ServiceTier          string          `json:"service_tier,omitempty"`
+	Store                json.RawMessage `json:"store,omitempty"`
+	PromptCacheKey       json.RawMessage `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention json.RawMessage `json:"prompt_cache_retention,omitempty"`
+	Stream               bool            `json:"stream,omitempty"`
+	Temperature          *float64        `json:"temperature,omitempty"`
+	Text                 json.RawMessage `json:"text,omitempty"`
+	ToolChoice           json.RawMessage `json:"tool_choice,omitempty"`
+	Tools                json.RawMessage `json:"tools,omitempty"` // 需要处理的参数很少，MCP 参数太多不确定，所以用 map
+	TopP                 *float64        `json:"top_p,omitempty"`
+	Truncation           string          `json:"truncation,omitempty"`
+	User                 string          `json:"user,omitempty"`
+	MaxToolCalls         uint            `json:"max_tool_calls,omitempty"`
+	Prompt               json.RawMessage `json:"prompt,omitempty"`
 }
 
 func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
@@ -871,6 +901,12 @@ type Reasoning struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+type Input struct {
+	Type    string          `json:"type,omitempty"`
+	Role    string          `json:"role,omitempty"`
+	Content json.RawMessage `json:"content,omitempty"`
+}
+
 type MediaInput struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
@@ -889,7 +925,7 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 		return nil
 	}
 
-	var inputs []MediaInput
+	var mediaInputs []MediaInput
 
 	// Try string first
 	// if str, ok := common.GetJsonType(r.Input); ok {
@@ -899,60 +935,74 @@ func (r *OpenAIResponsesRequest) ParseInput() []MediaInput {
 	if common.GetJsonType(r.Input) == "string" {
 		var str string
 		_ = common.Unmarshal(r.Input, &str)
-		inputs = append(inputs, MediaInput{Type: "input_text", Text: str})
-		return inputs
+		mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: str})
+		return mediaInputs
 	}
 
 	// Try array of parts
 	if common.GetJsonType(r.Input) == "array" {
-		var array []any
-		_ = common.Unmarshal(r.Input, &array)
-		for _, itemAny := range array {
-			// Already parsed MediaInput
-			if media, ok := itemAny.(MediaInput); ok {
-				inputs = append(inputs, media)
-				continue
+		var inputs []Input
+		_ = common.Unmarshal(r.Input, &inputs)
+		for _, input := range inputs {
+			if common.GetJsonType(input.Content) == "string" {
+				var str string
+				_ = common.Unmarshal(input.Content, &str)
+				mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: str})
 			}
-			// Generic map
-			item, ok := itemAny.(map[string]any)
-			if !ok {
-				continue
-			}
-			typeVal, ok := item["type"].(string)
-			if !ok {
-				continue
-			}
-			switch typeVal {
-			case "input_text":
-				text, _ := item["text"].(string)
-				inputs = append(inputs, MediaInput{Type: "input_text", Text: text})
-			case "input_image":
-				// image_url may be string or object with url field
-				var imageUrl string
-				switch v := item["image_url"].(type) {
-				case string:
-					imageUrl = v
-				case map[string]any:
-					if url, ok := v["url"].(string); ok {
-						imageUrl = url
+
+			if common.GetJsonType(input.Content) == "array" {
+				var array []any
+				_ = common.Unmarshal(input.Content, &array)
+				for _, itemAny := range array {
+					// Already parsed MediaContent
+					if media, ok := itemAny.(MediaInput); ok {
+						mediaInputs = append(mediaInputs, media)
+						continue
+					}
+
+					// Generic map
+					item, ok := itemAny.(map[string]any)
+					if !ok {
+						continue
+					}
+
+					typeVal, ok := item["type"].(string)
+					if !ok {
+						continue
+					}
+					switch typeVal {
+					case "input_text":
+						text, _ := item["text"].(string)
+						mediaInputs = append(mediaInputs, MediaInput{Type: "input_text", Text: text})
+					case "input_image":
+						// image_url may be string or object with url field
+						var imageUrl string
+						switch v := item["image_url"].(type) {
+						case string:
+							imageUrl = v
+						case map[string]any:
+							if url, ok := v["url"].(string); ok {
+								imageUrl = url
+							}
+						}
+						mediaInputs = append(mediaInputs, MediaInput{Type: "input_image", ImageUrl: imageUrl})
+					case "input_file":
+						// file_url may be string or object with url field
+						var fileUrl string
+						switch v := item["file_url"].(type) {
+						case string:
+							fileUrl = v
+						case map[string]any:
+							if url, ok := v["url"].(string); ok {
+								fileUrl = url
+							}
+						}
+						mediaInputs = append(mediaInputs, MediaInput{Type: "input_file", FileUrl: fileUrl})
 					}
 				}
-				inputs = append(inputs, MediaInput{Type: "input_image", ImageUrl: imageUrl})
-			case "input_file":
-				// file_url may be string or object with url field
-				var fileUrl string
-				switch v := item["file_url"].(type) {
-				case string:
-					fileUrl = v
-				case map[string]any:
-					if url, ok := v["url"].(string); ok {
-						fileUrl = url
-					}
-				}
-				inputs = append(inputs, MediaInput{Type: "input_file", FileUrl: fileUrl})
 			}
 		}
 	}
 
-	return inputs
+	return mediaInputs
 }

@@ -42,6 +42,7 @@ import Midjourney from './pages/Midjourney';
 import Pricing from './pages/Pricing';
 import Task from './pages/Task';
 import ModelPage from './pages/Model';
+import ModelDeploymentPage from './pages/ModelDeployment';
 import Playground from './pages/Playground';
 import OAuth2Callback from './components/auth/OAuth2Callback';
 import PersonalSetting from './components/settings/PersonalSetting';
@@ -51,6 +52,8 @@ import SetupCheck from './components/layout/SetupCheck';
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const About = lazy(() => import('./pages/About'));
+const UserAgreement = lazy(() => import('./pages/UserAgreement'));
+const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 
 function App() {
   const location = useLocation();
@@ -103,6 +106,14 @@ function App() {
           element={
             <AdminRoute>
               <ModelPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/deployment'
+          element={
+            <AdminRoute>
+              <ModelDeploymentPage />
             </AdminRoute>
           }
         />
@@ -187,6 +198,14 @@ function App() {
           element={
             <Suspense fallback={<Loading></Loading>} key={location.pathname}>
               <OAuth2Callback type='github'></OAuth2Callback>
+            </Suspense>
+          }
+        />
+        <Route
+          path='/oauth/discord'
+          element={
+            <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+              <OAuth2Callback type='discord'></OAuth2Callback>
             </Suspense>
           }
         />
@@ -298,6 +317,22 @@ function App() {
           element={
             <Suspense fallback={<Loading></Loading>} key={location.pathname}>
               <About />
+            </Suspense>
+          }
+        />
+        <Route
+          path='/user-agreement'
+          element={
+            <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+              <UserAgreement />
+            </Suspense>
+          }
+        />
+        <Route
+          path='/privacy-policy'
+          element={
+            <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+              <PrivacyPolicy />
             </Suspense>
           }
         />

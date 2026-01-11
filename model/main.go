@@ -3,12 +3,13 @@ package model
 import (
 	"fmt"
 	"log"
-	"one-api/common"
-	"one-api/constant"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
@@ -251,6 +252,7 @@ func migrateDB() error {
 		&Channel{},
 		&Token{},
 		&User{},
+		&PasskeyCredential{},
 		&Option{},
 		&Redemption{},
 		&Ability{},
@@ -265,6 +267,7 @@ func migrateDB() error {
 		&Setup{},
 		&TwoFA{},
 		&TwoFABackupCode{},
+		&Checkin{},
 	)
 	if err != nil {
 		return err
@@ -283,6 +286,7 @@ func migrateDBFast() error {
 		{&Channel{}, "Channel"},
 		{&Token{}, "Token"},
 		{&User{}, "User"},
+		{&PasskeyCredential{}, "PasskeyCredential"},
 		{&Option{}, "Option"},
 		{&Redemption{}, "Redemption"},
 		{&Ability{}, "Ability"},
@@ -297,6 +301,7 @@ func migrateDBFast() error {
 		{&Setup{}, "Setup"},
 		{&TwoFA{}, "TwoFA"},
 		{&TwoFABackupCode{}, "TwoFABackupCode"},
+		{&Checkin{}, "Checkin"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

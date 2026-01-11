@@ -6,37 +6,28 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"one-api/model"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 
 	"github.com/samber/lo"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pkg/errors"
 
-	"one-api/common"
-	"one-api/constant"
-	"one-api/dto"
-	"one-api/relay/channel"
-	relaycommon "one-api/relay/common"
-	"one-api/service"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 )
 
 // ============================
 // Request / Response structures
 // ============================
-
-type SubmitReq struct {
-	Prompt   string                 `json:"prompt"`
-	Model    string                 `json:"model,omitempty"`
-	Mode     string                 `json:"mode,omitempty"`
-	Image    string                 `json:"image,omitempty"`
-	Size     string                 `json:"size,omitempty"`
-	Duration int                    `json:"duration,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
-}
 
 type TrajectoryPoint struct {
 	X int `json:"x"`
@@ -121,28 +112,18 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
-	// Accept only POST /v1/video/generations as "generate" action.
-	action := constant.TaskActionGenerate
-	info.Action = action
-
-	var req SubmitReq
-	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
-		taskErr = service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
-		return
-	}
-	if strings.TrimSpace(req.Prompt) == "" {
-		taskErr = service.TaskErrorWrapperLocal(fmt.Errorf("prompt is required"), "invalid_request", http.StatusBadRequest)
-		return
-	}
-
-	// Store into context for later usage
-	c.Set("task_request", req)
-	return nil
+	// Use the standard validation method for TaskSubmitReq
+	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
 }
 
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	path := lo.Ternary(info.Action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
+
+	if isNewAPIRelay(info.ApiKey) {
+		return fmt.Sprintf("%s/kling%s", a.baseURL, path), nil
+	}
+
 	return fmt.Sprintf("%s%s", a.baseURL, path), nil
 }
 
@@ -166,7 +147,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if !exists {
 		return nil, fmt.Errorf("request not found in context")
 	}
-	req := v.(SubmitReq)
+	req := v.(relaycommon.TaskSubmitReq)
 
 	body, err := a.convertToRequestPayload(&req)
 	if err != nil {
@@ -205,16 +186,20 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		return
 	}
 	if kResp.Code != 0 {
-		taskErr = service.TaskErrorWrapperLocal(fmt.Errorf(kResp.Message), "task_failed", http.StatusBadRequest)
+		taskErr = service.TaskErrorWrapperLocal(fmt.Errorf("%s", kResp.Message), "task_failed", http.StatusBadRequest)
 		return
 	}
-	kResp.TaskId = kResp.Data.TaskId
-	c.JSON(http.StatusOK, kResp)
+	ov := dto.NewOpenAIVideo()
+	ov.ID = kResp.Data.TaskId
+	ov.TaskID = kResp.Data.TaskId
+	ov.CreatedAt = time.Now().Unix()
+	ov.Model = info.OriginModelName
+	c.JSON(http.StatusOK, ov)
 	return kResp.Data.TaskId, responseBody, nil
 }
 
 // FetchTask fetch task status
-func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any) (*http.Response, error) {
+func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
 	taskID, ok := body["task_id"].(string)
 	if !ok {
 		return nil, fmt.Errorf("invalid task_id")
@@ -225,6 +210,9 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any) (*http
 	}
 	path := lo.Ternary(action == constant.TaskActionGenerate, "/v1/videos/image2video", "/v1/videos/text2video")
 	url := fmt.Sprintf("%s%s/%s", baseUrl, path, taskID)
+	if isNewAPIRelay(key) {
+		url = fmt.Sprintf("%s/kling%s/%s", baseUrl, path, taskID)
+	}
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -240,7 +228,11 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any) (*http
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", "kling-sdk/1.0")
 
-	return service.GetHttpClient().Do(req)
+	client, err := service.GetHttpClientWithProxy(proxy)
+	if err != nil {
+		return nil, fmt.Errorf("new proxy http client failed: %w", err)
+	}
+	return client.Do(req)
 }
 
 func (a *TaskAdaptor) GetModelList() []string {
@@ -255,7 +247,7 @@ func (a *TaskAdaptor) GetChannelName() string {
 // helpers
 // ============================
 
-func (a *TaskAdaptor) convertToRequestPayload(req *SubmitReq) (*requestPayload, error) {
+func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*requestPayload, error) {
 	r := requestPayload{
 		Prompt:         req.Prompt,
 		Image:          req.Image,
@@ -321,17 +313,14 @@ func (a *TaskAdaptor) createJWTToken() (string, error) {
 	return a.createJWTTokenWithKey(a.apiKey)
 }
 
-//func (a *TaskAdaptor) createJWTTokenWithKey(apiKey string) (string, error) {
-//	parts := strings.Split(apiKey, "|")
-//	if len(parts) != 2 {
-//		return "", fmt.Errorf("invalid API key format, expected 'access_key,secret_key'")
-//	}
-//	return a.createJWTTokenWithKey(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
-//}
-
 func (a *TaskAdaptor) createJWTTokenWithKey(apiKey string) (string, error) {
-
+	if isNewAPIRelay(apiKey) {
+		return apiKey, nil // new api relay
+	}
 	keyParts := strings.Split(apiKey, "|")
+	if len(keyParts) != 2 {
+		return "", errors.New("invalid api_key, required format is accessKey|secretKey")
+	}
 	accessKey := strings.TrimSpace(keyParts[0])
 	if len(keyParts) == 1 {
 		return accessKey, nil
@@ -357,7 +346,7 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}
 	taskInfo.Code = resPayload.Code
 	taskInfo.TaskID = resPayload.Data.TaskId
-	taskInfo.Reason = resPayload.Message
+	taskInfo.Reason = resPayload.Data.TaskStatusMsg
 	//任务状态，枚举值：submitted（已提交）、processing（处理中）、succeed（成功）、failed（失败）
 	status := resPayload.Data.TaskStatus
 	switch status {
@@ -377,4 +366,41 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskInfo.Url = video.Url
 	}
 	return taskInfo, nil
+}
+
+func isNewAPIRelay(apiKey string) bool {
+	return strings.HasPrefix(apiKey, "sk-")
+}
+
+func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error) {
+	var klingResp responsePayload
+	if err := json.Unmarshal(originTask.Data, &klingResp); err != nil {
+		return nil, errors.Wrap(err, "unmarshal kling task data failed")
+	}
+
+	openAIVideo := dto.NewOpenAIVideo()
+	openAIVideo.ID = originTask.TaskID
+	openAIVideo.Status = originTask.Status.ToVideoStatus()
+	openAIVideo.SetProgressStr(originTask.Progress)
+	openAIVideo.CreatedAt = klingResp.Data.CreatedAt
+	openAIVideo.CompletedAt = klingResp.Data.UpdatedAt
+
+	if len(klingResp.Data.TaskResult.Videos) > 0 {
+		video := klingResp.Data.TaskResult.Videos[0]
+		if video.Url != "" {
+			openAIVideo.SetMetadata("url", video.Url)
+		}
+		if video.Duration != "" {
+			openAIVideo.Seconds = video.Duration
+		}
+	}
+
+	if klingResp.Code != 0 && klingResp.Message != "" {
+		openAIVideo.Error = &dto.OpenAIVideoError{
+			Message: klingResp.Message,
+			Code:    fmt.Sprintf("%d", klingResp.Code),
+		}
+	}
+	jsonData, _ := common.Marshal(openAIVideo)
+	return jsonData, nil
 }

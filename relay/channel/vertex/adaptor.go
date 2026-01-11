@@ -6,16 +6,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"one-api/dto"
-	"one-api/relay/channel"
-	"one-api/relay/channel/claude"
-	"one-api/relay/channel/gemini"
-	"one-api/relay/channel/openai"
-	relaycommon "one-api/relay/common"
-	"one-api/relay/constant"
-	"one-api/setting/model_setting"
-	"one-api/types"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
+	"github.com/QuantumNous/new-api/relay/channel/gemini"
+	"github.com/QuantumNous/new-api/relay/channel/openai"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/reasoning"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,6 +39,9 @@ var claudeModelMap = map[string]string{
 	"claude-sonnet-4-20250514":   "claude-sonnet-4@20250514",
 	"claude-opus-4-20250514":     "claude-opus-4@20250514",
 	"claude-opus-4-1-20250805":   "claude-opus-4-1@20250805",
+	"claude-sonnet-4-5-20250929": "claude-sonnet-4-5@20250929",
+	"claude-haiku-4-5-20251001":  "claude-haiku-4-5@20251001",
+	"claude-opus-4-5-20251101":   "claude-opus-4-5@20251101",
 }
 
 const anthropicVersion = "vertex-2023-10-16"
@@ -46,8 +52,41 @@ type Adaptor struct {
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
+	// Vertex AI does not support functionResponse.id; keep it stripped here for consistency.
+	if model_setting.GetGeminiSettings().RemoveFunctionResponseIdEnabled {
+		removeFunctionResponseID(request)
+	}
 	geminiAdaptor := gemini.Adaptor{}
 	return geminiAdaptor.ConvertGeminiRequest(c, info, request)
+}
+
+func removeFunctionResponseID(request *dto.GeminiChatRequest) {
+	if request == nil {
+		return
+	}
+
+	if len(request.Contents) > 0 {
+		for i := range request.Contents {
+			if len(request.Contents[i].Parts) == 0 {
+				continue
+			}
+			for j := range request.Contents[i].Parts {
+				part := &request.Contents[i].Parts[j]
+				if part.FunctionResponse == nil {
+					continue
+				}
+				if len(part.FunctionResponse.ID) > 0 {
+					part.FunctionResponse.ID = nil
+				}
+			}
+		}
+	}
+
+	if len(request.Requests) > 0 {
+		for i := range request.Requests {
+			removeFunctionResponseID(&request.Requests[i])
+		}
+	}
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
@@ -73,24 +112,102 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 	if strings.HasPrefix(info.UpstreamModelName, "claude") {
 		a.RequestMode = RequestModeClaude
-	} else if strings.Contains(info.UpstreamModelName, "llama") {
+	} else if strings.Contains(info.UpstreamModelName, "llama") ||
+		// open source models
+		strings.Contains(info.UpstreamModelName, "-maas") {
 		a.RequestMode = RequestModeLlama
 	} else {
 		a.RequestMode = RequestModeGemini
 	}
 }
 
-func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	adc := &Credentials{}
-	if err := json.Unmarshal([]byte(info.ApiKey), adc); err != nil {
-		return "", fmt.Errorf("failed to decode credentials file: %w", err)
-	}
+func (a *Adaptor) getRequestUrl(info *relaycommon.RelayInfo, modelName, suffix string) (string, error) {
 	region := GetModelRegion(info.ApiVersion, info.OriginModelName)
-	a.AccountCredentials = *adc
+	if info.ChannelOtherSettings.VertexKeyType != dto.VertexKeyTypeAPIKey {
+		adc := &Credentials{}
+		if err := common.Unmarshal([]byte(info.ApiKey), adc); err != nil {
+			return "", fmt.Errorf("failed to decode credentials file: %w", err)
+		}
+		a.AccountCredentials = *adc
+
+		if a.RequestMode == RequestModeGemini {
+			if region == "global" {
+				return fmt.Sprintf(
+					"https://aiplatform.googleapis.com/v1/projects/%s/locations/global/publishers/google/models/%s:%s",
+					adc.ProjectID,
+					modelName,
+					suffix,
+				), nil
+			} else {
+				return fmt.Sprintf(
+					"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:%s",
+					region,
+					adc.ProjectID,
+					region,
+					modelName,
+					suffix,
+				), nil
+			}
+		} else if a.RequestMode == RequestModeClaude {
+			if region == "global" {
+				return fmt.Sprintf(
+					"https://aiplatform.googleapis.com/v1/projects/%s/locations/global/publishers/anthropic/models/%s:%s",
+					adc.ProjectID,
+					modelName,
+					suffix,
+				), nil
+			} else {
+				return fmt.Sprintf(
+					"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:%s",
+					region,
+					adc.ProjectID,
+					region,
+					modelName,
+					suffix,
+				), nil
+			}
+		} else if a.RequestMode == RequestModeLlama {
+			return fmt.Sprintf(
+				"https://%s-aiplatform.googleapis.com/v1beta1/projects/%s/locations/%s/endpoints/openapi/chat/completions",
+				region,
+				adc.ProjectID,
+				region,
+			), nil
+		}
+	} else {
+		var keyPrefix string
+		if strings.HasSuffix(suffix, "?alt=sse") {
+			keyPrefix = "&"
+		} else {
+			keyPrefix = "?"
+		}
+		if region == "global" {
+			return fmt.Sprintf(
+				"https://aiplatform.googleapis.com/v1/publishers/google/models/%s:%s%skey=%s",
+				modelName,
+				suffix,
+				keyPrefix,
+				info.ApiKey,
+			), nil
+		} else {
+			return fmt.Sprintf(
+				"https://%s-aiplatform.googleapis.com/v1/publishers/google/models/%s:%s%skey=%s",
+				region,
+				modelName,
+				suffix,
+				keyPrefix,
+				info.ApiKey,
+			), nil
+		}
+	}
+	return "", errors.New("unsupported request mode")
+}
+
+func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	suffix := ""
 	if a.RequestMode == RequestModeGemini {
-
-		if model_setting.GetGeminiSettings().ThinkingAdapterEnabled {
+		if model_setting.GetGeminiSettings().ThinkingAdapterEnabled &&
+			!model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) {
 			// 新增逻辑：处理 -thinking-<budget> 格式
 			if strings.Contains(info.UpstreamModelName, "-thinking-") {
 				parts := strings.Split(info.UpstreamModelName, "-thinking-")
@@ -99,6 +216,8 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 				info.UpstreamModelName = strings.TrimSuffix(info.UpstreamModelName, "-thinking")
 			} else if strings.HasSuffix(info.UpstreamModelName, "-nothinking") {
 				info.UpstreamModelName = strings.TrimSuffix(info.UpstreamModelName, "-nothinking")
+			} else if baseModel, level, ok := reasoning.TrimEffortSuffix(info.UpstreamModelName); ok && level != "" {
+				info.UpstreamModelName = baseModel
 			}
 		}
 
@@ -111,24 +230,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		if strings.HasPrefix(info.UpstreamModelName, "imagen") {
 			suffix = "predict"
 		}
-
-		if region == "global" {
-			return fmt.Sprintf(
-				"https://aiplatform.googleapis.com/v1/projects/%s/locations/global/publishers/google/models/%s:%s",
-				adc.ProjectID,
-				info.UpstreamModelName,
-				suffix,
-			), nil
-		} else {
-			return fmt.Sprintf(
-				"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:%s",
-				region,
-				adc.ProjectID,
-				region,
-				info.UpstreamModelName,
-				suffix,
-			), nil
-		}
+		return a.getRequestUrl(info, info.UpstreamModelName, suffix)
 	} else if a.RequestMode == RequestModeClaude {
 		if info.IsStream {
 			suffix = "streamRawPredict?alt=sse"
@@ -139,41 +241,28 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		if v, ok := claudeModelMap[info.UpstreamModelName]; ok {
 			model = v
 		}
-		if region == "global" {
-			return fmt.Sprintf(
-				"https://aiplatform.googleapis.com/v1/projects/%s/locations/global/publishers/anthropic/models/%s:%s",
-				adc.ProjectID,
-				model,
-				suffix,
-			), nil
-		} else {
-			return fmt.Sprintf(
-				"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models/%s:%s",
-				region,
-				adc.ProjectID,
-				region,
-				model,
-				suffix,
-			), nil
-		}
+		return a.getRequestUrl(info, model, suffix)
 	} else if a.RequestMode == RequestModeLlama {
-		return fmt.Sprintf(
-			"https://%s-aiplatform.googleapis.com/v1beta1/projects/%s/locations/%s/endpoints/openapi/chat/completions",
-			region,
-			adc.ProjectID,
-			region,
-		), nil
+		return a.getRequestUrl(info, "", "")
 	}
 	return "", errors.New("unsupported request mode")
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
-	accessToken, err := getAccessToken(a, info)
-	if err != nil {
-		return err
+	if info.ChannelOtherSettings.VertexKeyType != dto.VertexKeyTypeAPIKey {
+		accessToken, err := getAccessToken(a, info)
+		if err != nil {
+			return err
+		}
+		req.Set("Authorization", "Bearer "+accessToken)
 	}
-	req.Set("Authorization", "Bearer "+accessToken)
+	if a.AccountCredentials.ProjectID != "" {
+		req.Set("x-goog-user-project", a.AccountCredentials.ProjectID)
+	}
+	if strings.Contains(info.UpstreamModelName, "claude") {
+		claude.CommonClaudeHeadersOperation(c, req, info)
+	}
 	return nil
 }
 
@@ -245,7 +334,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		info.UpstreamModelName = claudeReq.Model
 		return vertexClaudeReq, nil
 	} else if a.RequestMode == RequestModeGemini {
-		geminiRequest, err := gemini.CovertGemini2OpenAI(c, *request, info)
+		geminiRequest, err := gemini.CovertOpenAI2Gemini(c, *request, info)
 		if err != nil {
 			return nil, err
 		}

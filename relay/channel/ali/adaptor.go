@@ -5,19 +5,36 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"one-api/dto"
-	"one-api/relay/channel"
-	"one-api/relay/channel/claude"
-	"one-api/relay/channel/openai"
-	relaycommon "one-api/relay/common"
-	"one-api/relay/constant"
-	"one-api/types"
 	"strings"
+
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
+	"github.com/QuantumNous/new-api/relay/channel/openai"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
 
 type Adaptor struct {
+	IsSyncImageModel bool
+}
+
+var syncModels = []string{
+	"z-image",
+	"qwen-image",
+	"wan2.6",
+}
+
+func isSyncImageModel(modelName string) bool {
+	for _, m := range syncModels {
+		if strings.Contains(modelName, m) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
@@ -44,9 +61,19 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		case constant.RelayModeRerank:
 			fullRequestURL = fmt.Sprintf("%s/api/v1/services/rerank/text-rerank/text-rerank", info.ChannelBaseUrl)
 		case constant.RelayModeImagesGenerations:
-			fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/text2image/image-synthesis", info.ChannelBaseUrl)
+			if isSyncImageModel(info.OriginModelName) {
+				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/multimodal-generation/generation", info.ChannelBaseUrl)
+			} else {
+				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/text2image/image-synthesis", info.ChannelBaseUrl)
+			}
 		case constant.RelayModeImagesEdits:
-			fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/multimodal-generation/generation", info.ChannelBaseUrl)
+			if isOldWanModel(info.OriginModelName) {
+				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/image2image/image-synthesis", info.ChannelBaseUrl)
+			} else if isWanModel(info.OriginModelName) {
+				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/image-generation/generation", info.ChannelBaseUrl)
+			} else {
+				fullRequestURL = fmt.Sprintf("%s/api/v1/services/aigc/multimodal-generation/generation", info.ChannelBaseUrl)
+			}
 		case constant.RelayModeCompletions:
 			fullRequestURL = fmt.Sprintf("%s/compatible-mode/v1/completions", info.ChannelBaseUrl)
 		default:
@@ -67,9 +94,16 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 		req.Set("X-DashScope-Plugin", c.GetString("plugin"))
 	}
 	if info.RelayMode == constant.RelayModeImagesGenerations {
-		req.Set("X-DashScope-Async", "enable")
+		if isSyncImageModel(info.OriginModelName) {
+
+		} else {
+			req.Set("X-DashScope-Async", "enable")
+		}
 	}
 	if info.RelayMode == constant.RelayModeImagesEdits {
+		if isWanModel(info.OriginModelName) {
+			req.Set("X-DashScope-Async", "enable")
+		}
 		req.Set("Content-Type", "application/json")
 	}
 	return nil
@@ -81,15 +115,15 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	}
 	// docs: https://bailian.console.aliyun.com/?tab=api#/api/?type=model&url=2712216
 	// fix: InternalError.Algo.InvalidParameter: The value of the enable_thinking parameter is restricted to True.
-	if strings.Contains(request.Model, "thinking") {
-		request.EnableThinking = true
-		request.Stream = true
-		info.IsStream = true
-	}
-	// fix: ali parameter.enable_thinking must be set to false for non-streaming calls
-	if !info.IsStream {
-		request.EnableThinking = false
-	}
+	//if strings.Contains(request.Model, "thinking") {
+	//	request.EnableThinking = true
+	//	request.Stream = true
+	//	info.IsStream = true
+	//}
+	//// fix: ali parameter.enable_thinking must be set to false for non-streaming calls
+	//if !info.IsStream {
+	//	request.EnableThinking = false
+	//}
 
 	switch info.RelayMode {
 	default:
@@ -100,12 +134,25 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
 	if info.RelayMode == constant.RelayModeImagesGenerations {
-		aliRequest, err := oaiImage2Ali(request)
+		if isSyncImageModel(info.OriginModelName) {
+			a.IsSyncImageModel = true
+		}
+		aliRequest, err := oaiImage2AliImageRequest(info, request, a.IsSyncImageModel)
 		if err != nil {
-			return nil, fmt.Errorf("convert image request failed: %w", err)
+			return nil, fmt.Errorf("convert image request to async ali image request failed: %w", err)
 		}
 		return aliRequest, nil
 	} else if info.RelayMode == constant.RelayModeImagesEdits {
+		if isOldWanModel(info.OriginModelName) {
+			return oaiFormEdit2WanxImageEdit(c, info, request)
+		}
+		if isSyncImageModel(info.OriginModelName) {
+			if isWanModel(info.OriginModelName) {
+				a.IsSyncImageModel = false
+			} else {
+				a.IsSyncImageModel = true
+			}
+		}
 		// ali image edit https://bailian.console.aliyun.com/?tab=api#/api/?type=model&url=2976416
 		// 如果用户使用表单，则需要解析表单数据
 		if strings.Contains(c.Request.Header.Get("Content-Type"), "multipart/form-data") {
@@ -115,9 +162,9 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 			}
 			return aliRequest, nil
 		} else {
-			aliRequest, err := oaiImage2Ali(request)
+			aliRequest, err := oaiImage2AliImageRequest(info, request, a.IsSyncImageModel)
 			if err != nil {
-				return nil, fmt.Errorf("convert image request failed: %w", err)
+				return nil, fmt.Errorf("convert image request to async ali image request failed: %w", err)
 			}
 			return aliRequest, nil
 		}
@@ -139,7 +186,7 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	// TODO implement me
+	//TODO implement me
 	return nil, errors.New("not implemented")
 }
 
@@ -158,9 +205,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	default:
 		switch info.RelayMode {
 		case constant.RelayModeImagesGenerations:
-			err, usage = aliImageHandler(c, resp, info)
+			err, usage = aliImageHandler(a, c, resp, info)
 		case constant.RelayModeImagesEdits:
-			err, usage = aliImageEditHandler(c, resp, info)
+			err, usage = aliImageHandler(a, c, resp, info)
 		case constant.RelayModeRerank:
 			err, usage = RerankHandler(c, resp, info)
 		default:

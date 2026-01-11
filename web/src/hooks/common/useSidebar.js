@@ -17,62 +17,101 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useEffect, useMemo, useContext } from 'react';
+import { useState, useEffect, useMemo, useContext, useRef } from 'react';
 import { StatusContext } from '../../context/Status';
 import { API } from '../../helpers';
+
+// 创建一个全局事件系统来同步所有useSidebar实例
+const sidebarEventTarget = new EventTarget();
+const SIDEBAR_REFRESH_EVENT = 'sidebar-refresh';
+
+export const DEFAULT_ADMIN_CONFIG = {
+  chat: {
+    enabled: true,
+    playground: true,
+    chat: true,
+  },
+  console: {
+    enabled: true,
+    detail: true,
+    token: true,
+    log: true,
+    midjourney: true,
+    task: true,
+  },
+  personal: {
+    enabled: true,
+    topup: true,
+    personal: true,
+  },
+  admin: {
+    enabled: true,
+    channel: true,
+    models: true,
+    deployment: true,
+    redemption: true,
+    user: true,
+    setting: true,
+  },
+};
+
+const deepClone = (value) => JSON.parse(JSON.stringify(value));
+
+export const mergeAdminConfig = (savedConfig) => {
+  const merged = deepClone(DEFAULT_ADMIN_CONFIG);
+  if (!savedConfig || typeof savedConfig !== 'object') return merged;
+
+  for (const [sectionKey, sectionConfig] of Object.entries(savedConfig)) {
+    if (!sectionConfig || typeof sectionConfig !== 'object') continue;
+
+    if (!merged[sectionKey]) {
+      merged[sectionKey] = { ...sectionConfig };
+      continue;
+    }
+
+    merged[sectionKey] = { ...merged[sectionKey], ...sectionConfig };
+  }
+
+  return merged;
+};
 
 export const useSidebar = () => {
   const [statusState] = useContext(StatusContext);
   const [userConfig, setUserConfig] = useState(null);
   const [loading, setLoading] = useState(true);
+  const instanceIdRef = useRef(null);
+  const hasLoadedOnceRef = useRef(false);
 
-  // 默认配置
-  const defaultAdminConfig = {
-    chat: {
-      enabled: true,
-      playground: true,
-      chat: true,
-    },
-    console: {
-      enabled: true,
-      detail: true,
-      token: true,
-      log: true,
-      midjourney: true,
-      task: true,
-    },
-    personal: {
-      enabled: true,
-      topup: true,
-      personal: true,
-    },
-    admin: {
-      enabled: true,
-      channel: true,
-      models: true,
-      redemption: true,
-      user: true,
-      setting: true,
-    },
-  };
+  if (!instanceIdRef.current) {
+    const randomPart = Math.random().toString(16).slice(2);
+    instanceIdRef.current = `sidebar-${Date.now()}-${randomPart}`;
+  }
 
   // 获取管理员配置
   const adminConfig = useMemo(() => {
     if (statusState?.status?.SidebarModulesAdmin) {
       try {
         const config = JSON.parse(statusState.status.SidebarModulesAdmin);
-        return config;
+        return mergeAdminConfig(config);
       } catch (error) {
-        return defaultAdminConfig;
+        return mergeAdminConfig(null);
       }
     }
-    return defaultAdminConfig;
+    return mergeAdminConfig(null);
   }, [statusState?.status?.SidebarModulesAdmin]);
 
   // 加载用户配置的通用方法
-  const loadUserConfig = async () => {
+  const loadUserConfig = async ({ withLoading } = {}) => {
+    const shouldShowLoader =
+      typeof withLoading === 'boolean'
+        ? withLoading
+        : !hasLoadedOnceRef.current;
+
     try {
-      setLoading(true);
+      if (shouldShowLoader) {
+        setLoading(true);
+      }
+
       const res = await API.get('/api/user/self');
       if (res.data.success && res.data.data.sidebar_modules) {
         let config;
@@ -118,15 +157,25 @@ export const useSidebar = () => {
       });
       setUserConfig(defaultUserConfig);
     } finally {
-      setLoading(false);
+      if (shouldShowLoader) {
+        setLoading(false);
+      }
+      hasLoadedOnceRef.current = true;
     }
   };
 
   // 刷新用户配置的方法（供外部调用）
   const refreshUserConfig = async () => {
     if (Object.keys(adminConfig).length > 0) {
-      await loadUserConfig();
+      await loadUserConfig({ withLoading: false });
     }
+
+    // 触发全局刷新事件，通知所有useSidebar实例更新
+    sidebarEventTarget.dispatchEvent(
+      new CustomEvent(SIDEBAR_REFRESH_EVENT, {
+        detail: { sourceId: instanceIdRef.current, skipLoader: true },
+      }),
+    );
   };
 
   // 加载用户配置
@@ -135,6 +184,30 @@ export const useSidebar = () => {
     if (Object.keys(adminConfig).length > 0) {
       loadUserConfig();
     }
+  }, [adminConfig]);
+
+  // 监听全局刷新事件
+  useEffect(() => {
+    const handleRefresh = (event) => {
+      if (event?.detail?.sourceId === instanceIdRef.current) {
+        return;
+      }
+
+      if (Object.keys(adminConfig).length > 0) {
+        loadUserConfig({
+          withLoading: event?.detail?.skipLoader ? false : undefined,
+        });
+      }
+    };
+
+    sidebarEventTarget.addEventListener(SIDEBAR_REFRESH_EVENT, handleRefresh);
+
+    return () => {
+      sidebarEventTarget.removeEventListener(
+        SIDEBAR_REFRESH_EVENT,
+        handleRefresh,
+      );
+    };
   }, [adminConfig]);
 
   // 计算最终的显示配置
