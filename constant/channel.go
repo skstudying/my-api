@@ -53,9 +53,9 @@ const (
 	ChannelTypeSubmodel       = 53
 	ChannelTypeDoubaoVideo    = 54
 	ChannelTypeSora           = 55
-	ChannelTypeReplicate      = 56
-	ChannelTypeVolcVideo      = 57
-	ChannelTypeReplicate2     = 58 // Replicate img2img 专用渠道
+	ChannelTypeReplicate  = 56
+	ChannelTypeVolcVideo  = 101 // 火山视频专用渠道（自定义，避免与上游冲突）
+	ChannelTypeReplicate2 = 102 // Replicate img2img 专用渠道（自定义，避免与上游冲突）
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -118,8 +118,52 @@ var ChannelBaseURLs = []string{
 	"https://ark.cn-beijing.volces.com",         //54
 	"https://api.openai.com",                    //55
 	"https://api.replicate.com",                 //56
-	"https://ark.cn-beijing.volces.com",         //57
-	"https://api.replicate.com",                 //58 Replicate2 (img2img)
+	"",                                          //57
+	"",                                          //58
+	"",                                          //59
+	"",                                          //60
+	"",                                          //61
+	"",                                          //62
+	"",                                          //63
+	"",                                          //64
+	"",                                          //65
+	"",                                          //66
+	"",                                          //67
+	"",                                          //68
+	"",                                          //69
+	"",                                          //70
+	"",                                          //71
+	"",                                          //72
+	"",                                          //73
+	"",                                          //74
+	"",                                          //75
+	"",                                          //76
+	"",                                          //77
+	"",                                          //78
+	"",                                          //79
+	"",                                          //80
+	"",                                          //81
+	"",                                          //82
+	"",                                          //83
+	"",                                          //84
+	"",                                          //85
+	"",                                          //86
+	"",                                          //87
+	"",                                          //88
+	"",                                          //89
+	"",                                          //90
+	"",                                          //91
+	"",                                          //92
+	"",                                          //93
+	"",                                          //94
+	"",                                          //95
+	"",                                          //96
+	"",                                          //97
+	"",                                          //98
+	"",                                          //99
+	"",                                          //100
+	"https://ark.cn-beijing.volces.com",         //101 VolcVideo（自定义渠道）
+	"https://api.replicate.com",                 //102 Replicate2 img2img（自定义渠道）
 }
 
 var ChannelTypeNames = map[int]string{

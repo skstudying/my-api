@@ -185,12 +185,12 @@ export const CHANNEL_OPTIONS = [
     label: 'Replicate',
   },
   {
-    value: 57,
+    value: 101,
     color: 'orange',
     label: '火山视频专用',
   },
   {
-    value: 58,
+    value: 102,
     color: 'purple',
     label: 'Replicate2 (img2img)',
   },

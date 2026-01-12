@@ -371,7 +371,9 @@ export function getChannelIcon(channelType) {
       return <Doubao.Color size={iconSize} />;
     case 56: // Replicate
       return <Replicate size={iconSize} />;
-    case 58: // Replicate2 (img2img)
+    case 101: // 火山视频专用
+      return <Doubao.Color size={iconSize} />;
+    case 102: // Replicate2 (img2img)
       return <Replicate size={iconSize} />;
     case 8: // 自定义渠道
     case 22: // 知识库：FastGPT
