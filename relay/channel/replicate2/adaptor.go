@@ -3,6 +3,7 @@ package replicate2
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -311,43 +312,41 @@ func extractVersionFromModel(model string) string {
 	return ""
 }
 
-func getExtraField(extra map[string]any, key string) (string, bool) {
+func getExtraField(extra map[string]json.RawMessage, key string) (string, bool) {
 	if extra == nil {
 		return "", false
 	}
-	if val, ok := extra[key]; ok {
-		if str, ok := val.(string); ok {
+	if raw, ok := extra[key]; ok {
+		var str string
+		if err := common.Unmarshal(raw, &str); err == nil {
 			return str, true
 		}
 	}
 	return "", false
 }
 
-func getExtraFieldFloat(extra map[string]any, key string) (float64, bool) {
+func getExtraFieldFloat(extra map[string]json.RawMessage, key string) (float64, bool) {
 	if extra == nil {
 		return 0, false
 	}
-	if val, ok := extra[key]; ok {
-		switch v := val.(type) {
-		case float64:
-			return v, true
-		case float32:
-			return float64(v), true
-		case int:
-			return float64(v), true
-		case int64:
-			return float64(v), true
+	if raw, ok := extra[key]; ok {
+		var f float64
+		if err := common.Unmarshal(raw, &f); err == nil {
+			return f, true
 		}
 	}
 	return 0, false
 }
 
-func getExtraFieldAny(extra map[string]any, key string) (any, bool) {
+func getExtraFieldAny(extra map[string]json.RawMessage, key string) (any, bool) {
 	if extra == nil {
 		return nil, false
 	}
-	if val, ok := extra[key]; ok {
-		return val, true
+	if raw, ok := extra[key]; ok {
+		var val any
+		if err := common.Unmarshal(raw, &val); err == nil {
+			return val, true
+		}
 	}
 	return nil, false
 }
