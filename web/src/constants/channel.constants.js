@@ -189,6 +189,11 @@ export const CHANNEL_OPTIONS = [
     color: 'orange',
     label: '火山视频专用',
   },
+  {
+    value: 58,
+    color: 'purple',
+    label: 'Replicate2 (img2img)',
+  },
 ];
 
 export const MODEL_TABLE_PAGE_SIZE = 10;

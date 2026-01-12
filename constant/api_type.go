@@ -35,5 +35,6 @@ const (
 	APITypeSubmodel
 	APITypeMiniMax
 	APITypeReplicate
-	APITypeDummy // this one is only for count, do not add any channel after this
+	APITypeReplicate2 // Replicate img2img
+	APITypeDummy      // this one is only for count, do not add any channel after this
 )

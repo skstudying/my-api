@@ -55,6 +55,7 @@ const (
 	ChannelTypeSora           = 55
 	ChannelTypeReplicate      = 56
 	ChannelTypeVolcVideo      = 57
+	ChannelTypeReplicate2     = 58 // Replicate img2img 专用渠道
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -118,6 +119,7 @@ var ChannelBaseURLs = []string{
 	"https://api.openai.com",                    //55
 	"https://api.replicate.com",                 //56
 	"https://ark.cn-beijing.volces.com",         //57
+	"https://api.replicate.com",                 //58 Replicate2 (img2img)
 }
 
 var ChannelTypeNames = map[int]string{
@@ -175,6 +177,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeSora:           "Sora",
 	ChannelTypeReplicate:      "Replicate",
 	ChannelTypeVolcVideo:      "VolcVideo",
+	ChannelTypeReplicate2:     "Replicate2",
 }
 
 func GetChannelTypeName(channelType int) string {

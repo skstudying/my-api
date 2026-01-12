@@ -1,0 +1,52 @@
+# 自定义 Docker Compose 配置
+# 
+# ⚠️ 使用前请将 YOUR_DOCKERHUB_USERNAME 替换为你的 Docker Hub 用户名
+#
+# 启动：docker-compose -f docker-compose.custom.yml up -d
+# 停止：docker-compose -f docker-compose.custom.yml down
+# 日志：docker-compose -f docker-compose.custom.yml logs -f
+
+version: '3.4'
+
+services:
+  my-api:
+    # ⚠️ 替换为你自己的镜像地址
+    image: YOUR_DOCKERHUB_USERNAME/my-api:latest
+    container_name: my-api
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "3456:3000"
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    environment:
+      # 数据库配置
+      - SQL_DSN=root:aibusroot0307@tcp(172.19.0.3:3306)/volcapi?parseTime=true
+      # Redis（可选）
+      - REDIS_CONN_STRING=redis://redis
+      # 时区
+      - TZ=Asia/Shanghai
+      # 你的自定义配置
+      - DEBUG=false
+      - UPDATE_TASK=true
+      - STREAMING_TIMEOUT=600
+      - GEMINI_VISION_MAX_IMAGE_NUM=100
+      - GET_MEDIA_TOKEN=true
+      # 推荐配置
+      - ERROR_LOG_ENABLED=true
+      - BATCH_UPDATE_ENABLED=true
+    depends_on:
+      - redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: always
