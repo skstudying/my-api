@@ -7,8 +7,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -154,11 +152,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 
 		// 如果返回了 total_tokens 并且配置了模型倍率(非固定价格),则重新计费
 		if taskResult.TotalTokens > 0 {
-			// 获取模型名称 - 优先使用任务保存的模型名称
-			modelName := task.ModelName
+			// 获取模型名称
+			var modelName string
 
-			// 如果任务中没有保存模型名称，从taskResult.Reason中解析（包含完整的响应数据）
-			if modelName == "" && taskResult.Reason != "" {
+			// 从taskResult.Reason中解析（包含完整的响应数据）
+			if taskResult.Reason != "" {
 				var successData map[string]interface{}
 				if err := json.Unmarshal([]byte(taskResult.Reason), &successData); err == nil {
 					if model, ok := successData["model"].(string); ok {
