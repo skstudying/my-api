@@ -67,6 +67,7 @@ const EditTokenModal = (props) => {
   const getInitValues = () => ({
     name: '',
     remain_quota: 0,
+    remain_quota_usd: 0, // 用于前端显示的美金额度
     expired_time: -1,
     unlimited_quota: true,
     model_limits_enabled: false,
@@ -162,6 +163,10 @@ const EditTokenModal = (props) => {
       } else {
         data.model_limits = [];
       }
+      // 将 tokens 转换为美金额度用于显示，精确到小数点后 6 位
+      let quotaPerUnit = localStorage.getItem('quota_per_unit');
+      quotaPerUnit = parseFloat(quotaPerUnit) || 500000;
+      data.remain_quota_usd = parseFloat((data.remain_quota / quotaPerUnit).toFixed(6));
       if (formApiRef.current) {
         formApiRef.current.setValues({ ...getInitValues(), ...data });
       }
@@ -207,9 +212,14 @@ const EditTokenModal = (props) => {
 
   const submit = async (values) => {
     setLoading(true);
+    // 获取转换比率
+    let quotaPerUnit = localStorage.getItem('quota_per_unit');
+    quotaPerUnit = parseFloat(quotaPerUnit) || 500000;
+    
     if (isEdit) {
-      let { tokenCount: _tc, ...localInputs } = values;
-      localInputs.remain_quota = parseInt(localInputs.remain_quota);
+      let { tokenCount: _tc, remain_quota_usd, ...localInputs } = values;
+      // 将美金额度转换为 tokens
+      localInputs.remain_quota = parseInt(remain_quota_usd * quotaPerUnit);
       if (localInputs.expired_time !== -1) {
         let time = Date.parse(localInputs.expired_time);
         if (isNaN(time)) {
@@ -237,7 +247,7 @@ const EditTokenModal = (props) => {
       const count = parseInt(values.tokenCount, 10) || 1;
       let successCount = 0;
       for (let i = 0; i < count; i++) {
-        let { tokenCount: _tc, ...localInputs } = values;
+        let { tokenCount: _tc, remain_quota_usd, ...localInputs } = values;
         const baseName =
           values.name.trim() === '' ? 'default' : values.name.trim();
         if (i !== 0 || values.name.trim() === '') {
@@ -245,7 +255,8 @@ const EditTokenModal = (props) => {
         } else {
           localInputs.name = baseName;
         }
-        localInputs.remain_quota = parseInt(localInputs.remain_quota);
+        // 将美金额度转换为 tokens
+        localInputs.remain_quota = parseInt(remain_quota_usd * quotaPerUnit);
 
         if (localInputs.expired_time !== -1) {
           let time = Date.parse(localInputs.expired_time);
@@ -485,24 +496,24 @@ const EditTokenModal = (props) => {
                 <Row gutter={12}>
                   <Col span={24}>
                     <Form.AutoComplete
-                      field='remain_quota'
+                      field='remain_quota_usd'
                       label={t('额度')}
                       placeholder={t('请输入额度')}
                       type='number'
                       disabled={values.unlimited_quota}
-                      extraText={renderQuotaWithPrompt(values.remain_quota)}
                       rules={
                         values.unlimited_quota
                           ? []
                           : [{ required: true, message: t('请输入额度') }]
                       }
                       data={[
-                        { value: 500000, label: '1$' },
-                        { value: 5000000, label: '10$' },
-                        { value: 25000000, label: '50$' },
-                        { value: 50000000, label: '100$' },
-                        { value: 250000000, label: '500$' },
-                        { value: 500000000, label: '1000$' },
+                        { value: 1, label: '$1' },
+                        { value: 5, label: '$5' },
+                        { value: 10, label: '$10' },
+                        { value: 50, label: '$50' },
+                        { value: 100, label: '$100' },
+                        { value: 500, label: '$500' },
+                        { value: 1000, label: '$1000' },
                       ]}
                     />
                   </Col>
