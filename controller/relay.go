@@ -216,6 +216,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
+		// 处理内容违规错误：扣费0.05额度（乘以分组系数）
+		if types.IsContentViolation(newAPIError) {
+			handleContentViolation(c, relayInfo)
+		}
+
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
@@ -340,6 +345,61 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 		return false
 	}
 	return true
+}
+
+func handleContentViolation(c *gin.Context, relayInfo *relaycommon.RelayInfo) {
+	// 固定扣费0.05美金 (25000 quota，因为1美金=500000 quota)
+	// 需要乘以用户本次请求使用的令牌分组的分组系数
+	baseViolationQuota := 25000
+	groupRatio := relayInfo.PriceData.GroupRatioInfo.GroupRatio
+	violationQuota := int(float64(baseViolationQuota) * groupRatio)
+
+	// 记录日志
+	logger.LogWarn(c, fmt.Sprintf("内容违规，扣除 %s 额度作为惩罚（基础额度：%s，分组系数：%.2f）",
+		logger.FormatQuota(violationQuota),
+		logger.FormatQuota(baseViolationQuota),
+		groupRatio))
+
+	// 扣除用户额度
+	err := model.DecreaseUserQuota(relayInfo.UserId, violationQuota)
+	if err != nil {
+		logger.LogError(c, fmt.Sprintf("扣除用户违规额度失败: %s", err.Error()))
+	} else {
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, violationQuota)
+	}
+
+	// 扣除令牌额度（如果不是无限额度）
+	if !relayInfo.TokenUnlimited && relayInfo.TokenId > 0 {
+		err = model.DecreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, violationQuota)
+		if err != nil {
+			logger.LogError(c, fmt.Sprintf("扣除令牌违规额度失败: %s", err.Error()))
+		}
+	}
+
+	// 记录消费日志
+	tokenName := c.GetString("token_name")
+	model.RecordConsumeLog(c, relayInfo.UserId, model.RecordConsumeLogParams{
+		ChannelId:        relayInfo.ChannelId,
+		PromptTokens:     0,
+		CompletionTokens: 0,
+		ModelName:        relayInfo.OriginModelName,
+		TokenName:        tokenName,
+		Quota:            violationQuota,
+		Content:          fmt.Sprintf("Grok:Content violates usage guidelines.内容违规惩罚扣费（基础额度：%s，分组系数：%.2f）", logger.FormatQuota(baseViolationQuota), groupRatio),
+		TokenId:          relayInfo.TokenId,
+		UseTimeSeconds:   0,
+		IsStream:         false,
+		Group:            relayInfo.UsingGroup,
+		Other: map[string]interface{}{
+			"violation_type": "content_policy_violation",
+			"penalty":        true,
+			"base_quota":     baseViolationQuota,
+			"group_ratio":    groupRatio,
+		},
+	})
+
+	// 更新渠道使用额度统计
+	model.UpdateChannelUsedQuota(relayInfo.ChannelId, violationQuota)
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {

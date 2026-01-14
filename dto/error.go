@@ -37,6 +37,12 @@ type GeneralErrorResponse struct {
 	} `json:"response"`
 }
 
+// XAIErrorResponse xAI特殊错误格式：error字段是字符串而非对象
+type XAIErrorResponse struct {
+	Code  string `json:"code"`
+	Error string `json:"error"` // xAI的error是字符串
+}
+
 func (e GeneralErrorResponse) TryToOpenAIError() *types.OpenAIError {
 	var openAIError types.OpenAIError
 	if len(e.Error) > 0 {

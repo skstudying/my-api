@@ -51,6 +51,10 @@ func ShouldDisableChannel(channelType int, err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
+	// 内容违规错误不应该禁用渠道（是用户问题，不是渠道问题）
+	if types.IsContentViolation(err) {
+		return false
+	}
 	if types.IsChannelError(err) {
 		return true
 	}

@@ -361,6 +361,12 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 				extraContent = append(extraContent, fmt.Sprintf("Audio Input 花费 %s", audioInputQuota.String()))
 			}
 		}
+
+		// 确保 baseTokens 不小于0（防止 cached_tokens > prompt_tokens 的异常情况）
+		if baseTokens.LessThan(decimal.Zero) {
+			baseTokens = decimal.Zero
+		}
+
 		promptQuota := baseTokens.Add(cachedTokensWithRatio).
 			Add(imageTokensWithRatio).
 			Add(dCachedCreationTokensWithRatio)

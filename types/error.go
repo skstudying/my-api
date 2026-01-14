@@ -76,6 +76,7 @@ const (
 	ErrorCodeAwsInvokeError         ErrorCode = "aws_invoke_error"
 	ErrorCodeModelNotFound          ErrorCode = "model_not_found"
 	ErrorCodePromptBlocked          ErrorCode = "prompt_blocked"
+	ErrorCodeContentPolicyViolation ErrorCode = "content_policy_violation" // 新增：内容违规
 
 	// sql error
 	ErrorCodeQueryDataError  ErrorCode = "query_data_error"
@@ -379,4 +380,12 @@ func IsRecordErrorLog(e *NewAPIError) bool {
 		return true
 	}
 	return *e.recordErrorLog
+}
+
+func IsContentViolation(e *NewAPIError) bool {
+	if e == nil {
+		return false
+	}
+	// 通过错误代码判断是否是内容违规
+	return e.errorCode == ErrorCodeContentPolicyViolation
 }

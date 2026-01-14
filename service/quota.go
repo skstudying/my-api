@@ -267,6 +267,11 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 			}
 		}
 		promptTokens -= cacheCreationTokens
+
+		// 确保 promptTokens 不小于0（防止 cached_tokens > prompt_tokens 的异常情况）
+		if promptTokens < 0 {
+			promptTokens = 0
+		}
 	}
 
 	calculateQuota := 0.0

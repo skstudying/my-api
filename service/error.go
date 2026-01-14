@@ -89,7 +89,7 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		return
 	}
 	CloseResponseBodyGracefully(resp)
-	var errResponse dto.GeneralErrorResponse
+
 	buildErrWithBody := func(message string) error {
 		if message == "" {
 			return fmt.Errorf("bad response status code %d, body: %s", resp.StatusCode, string(responseBody))
@@ -97,6 +97,55 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		return fmt.Errorf("bad response status code %d, message: %s, body: %s", resp.StatusCode, message, string(responseBody))
 	}
 
+	// 先尝试解析为xAI格式（error字段为字符串）
+	var xaiErrResponse dto.XAIErrorResponse
+	if err := common.Unmarshal(responseBody, &xaiErrResponse); err == nil && xaiErrResponse.Error != "" {
+		// 检查是否是API key相关错误
+		// xAI可能返回400状态码，但语义上是认证错误，需要规范化为401
+		errorLower := strings.ToLower(xaiErrResponse.Error)
+		if strings.Contains(errorLower, "incorrect api key") ||
+			strings.Contains(errorLower, "invalid api key") ||
+			strings.Contains(errorLower, "api key provided") ||
+			(strings.Contains(errorLower, "api key") && strings.Contains(errorLower, "invalid")) {
+			// 规范化为标准的invalid_api_key错误，使用401状态码
+			// 这样可以触发正确的渠道禁用和重试逻辑
+			return types.WithOpenAIError(types.OpenAIError{
+				Message: xaiErrResponse.Error,
+				Type:    "authentication_error",
+				Code:    "invalid_api_key",
+			}, http.StatusUnauthorized) // 强制使用401状态码
+		}
+
+		// xAI格式：构造OpenAIError
+		openaiError := types.OpenAIError{
+			Message: xaiErrResponse.Error,
+			Type:    "upstream_error",
+			Code:    xaiErrResponse.Code,
+		}
+
+		// 检查是否是内容违规错误 (403 + CSAM检查失败)
+		if resp.StatusCode == http.StatusForbidden && strings.Contains(xaiErrResponse.Error, "Content violates usage guidelines") {
+			// 构造特殊的内容违规错误
+			violationErr := types.NewOpenAIError(
+				errors.New(xaiErrResponse.Error),
+				types.ErrorCodeContentPolicyViolation, // 使用专门的错误代码
+				resp.StatusCode,
+				types.ErrOptionWithSkipRetry(), // 跳过重试
+			)
+			// 设置OpenAI格式的错误信息
+			violationErr.RelayError = types.OpenAIError{
+				Message: xaiErrResponse.Error,
+				Type:    "content_policy_violation",
+				Code:    "content_policy_violation",
+			}
+			return violationErr
+		}
+
+		return types.WithOpenAIError(openaiError, resp.StatusCode)
+	}
+
+	// 标准格式处理（OpenAI等）
+	var errResponse dto.GeneralErrorResponse
 	err = common.Unmarshal(responseBody, &errResponse)
 	if err != nil {
 		if showBodyWhenFail {
