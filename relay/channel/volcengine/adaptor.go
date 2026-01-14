@@ -233,7 +233,15 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 			requestMap["watermark"] = *request.Watermark
 		}
 
-		// 添加 Extra 字段中的参数（包括 image、guidance_scale 等）
+		// 添加 image 字段（图生图场景）
+		if len(request.Image) > 0 {
+			var imageValue interface{}
+			if err := json.Unmarshal(request.Image, &imageValue); err == nil {
+				requestMap["image"] = imageValue
+			}
+		}
+
+		// 添加 Extra 字段中的参数（包括 guidance_scale 等）
 		for k, v := range request.Extra {
 			var value interface{}
 			if err := json.Unmarshal(v, &value); err == nil {
