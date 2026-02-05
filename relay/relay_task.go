@@ -130,6 +130,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 		return service.TaskErrorWrapperLocal(fmt.Errorf("invalid api platform: %s", platform), "invalid_api_platform", http.StatusBadRequest)
 	}
 	adaptor.Init(info)
+
+	// 处理模型映射（渠道模型重定向）
+	if err := applyTaskModelMapping(c, info); err != nil {
+		return service.TaskErrorWrapperLocal(err, "model_mapping_failed", http.StatusBadRequest)
+	}
+
 	// get & validate taskRequest 获取并验证文本请求
 	taskErr = adaptor.ValidateRequestAndSetAction(c, info)
 	if taskErr != nil {
@@ -511,4 +517,55 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Progress:   task.Progress,
 		Data:       task.Data,
 	}
+}
+
+// applyTaskModelMapping 处理任务请求的模型映射
+// 从渠道配置的 model_mapping 中获取映射关系，将原始模型名映射到上游模型名
+func applyTaskModelMapping(c *gin.Context, info *relaycommon.RelayInfo) error {
+	modelMapping := c.GetString("model_mapping")
+	if modelMapping == "" || modelMapping == "{}" {
+		return nil
+	}
+
+	modelMap := make(map[string]string)
+	if err := json.Unmarshal([]byte(modelMapping), &modelMap); err != nil {
+		return fmt.Errorf("unmarshal model mapping failed: %w", err)
+	}
+
+	// 支持链式模型重定向，最终使用链尾的模型
+	currentModel := info.OriginModelName
+	visitedModels := map[string]bool{
+		currentModel: true,
+	}
+
+	for {
+		if mappedModel, exists := modelMap[currentModel]; exists && mappedModel != "" {
+			// 模型重定向循环检测，避免无限循环
+			if visitedModels[mappedModel] {
+				if mappedModel == currentModel {
+					// 自映射，如果是原始模型则不做处理
+					if currentModel == info.OriginModelName {
+						info.IsModelMapped = false
+						return nil
+					}
+					// 否则已经映射过了
+					info.IsModelMapped = true
+					break
+				}
+				return fmt.Errorf("model mapping contains cycle: %s -> %s", currentModel, mappedModel)
+			}
+			visitedModels[mappedModel] = true
+			currentModel = mappedModel
+			info.IsModelMapped = true
+		} else {
+			break
+		}
+	}
+
+	if info.IsModelMapped {
+		info.UpstreamModelName = currentModel
+		common.SysLog(fmt.Sprintf("Task model mapping: %s -> %s", info.OriginModelName, info.UpstreamModelName))
+	}
+
+	return nil
 }
