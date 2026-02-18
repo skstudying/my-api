@@ -267,11 +267,13 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 			}
 		}
 		promptTokens -= cacheCreationTokens
+	} else if relayInfo.ChannelType == constant.ChannelTypeGemini || relayInfo.ChannelType == constant.ChannelTypeVertexAi {
+		promptTokens -= cacheTokens
+	}
 
-		// 确保 promptTokens 不小于0（防止 cached_tokens > prompt_tokens 的异常情况）
-		if promptTokens < 0 {
-			promptTokens = 0
-		}
+	// 确保 promptTokens 不小于0（防止 cached_tokens > prompt_tokens 的异常情况）
+	if promptTokens < 0 {
+		promptTokens = 0
 	}
 
 	calculateQuota := 0.0
