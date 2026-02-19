@@ -45,13 +45,8 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 	usage.CompletionTokenDetails.ReasoningTokens = geminiResponse.UsageMetadata.ThoughtsTokenCount
 	usage.PromptTokensDetails.CachedTokens = geminiResponse.UsageMetadata.CachedContentTokenCount
 
-	for _, detail := range geminiResponse.UsageMetadata.PromptTokensDetails {
-		if detail.Modality == "AUDIO" {
-			usage.PromptTokensDetails.AudioTokens = detail.TokenCount
-		} else if detail.Modality == "TEXT" {
-			usage.PromptTokensDetails.TextTokens = detail.TokenCount
-		}
-	}
+	applyGeminiTokensDetailsToPromptUsage(&usage, geminiResponse.UsageMetadata.PromptTokensDetails)
+	applyGeminiTokensDetailsToCompletionUsage(&usage, geminiResponse.UsageMetadata.CandidatesTokensDetails)
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
