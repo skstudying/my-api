@@ -1,6 +1,7 @@
 package xai
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -42,6 +43,22 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		Prompt:         request.Prompt,
 		N:              int(request.N),
 		ResponseFormat: request.ResponseFormat,
+		Image:          request.Image,
+	}
+	if v, ok := request.Extra["aspect_ratio"]; ok {
+		var ar string
+		if json.Unmarshal(v, &ar) == nil {
+			xaiRequest.AspectRatio = ar
+		}
+	}
+	if v, ok := request.Extra["resolution"]; ok {
+		var res string
+		if json.Unmarshal(v, &res) == nil {
+			xaiRequest.Resolution = res
+		}
+	}
+	if v, ok := request.Extra["images"]; ok {
+		xaiRequest.Images = v
 	}
 	return xaiRequest, nil
 }

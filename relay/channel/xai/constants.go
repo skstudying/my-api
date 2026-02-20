@@ -12,6 +12,10 @@ var ModelList = []string{
 	"grok-3-mini-fast-beta-high", "grok-3-mini-fast-beta-low", "grok-3-mini-fast-beta-medium",
 	// image model
 	"grok-2-image",
+	"grok-imagine-image",
+	"grok-imagine-image-pro",
+	// video model
+	"grok-imagine-video",
 	// legacy models
 	"grok-2", "grok-2-vision",
 	"grok-beta", "grok-vision-beta",

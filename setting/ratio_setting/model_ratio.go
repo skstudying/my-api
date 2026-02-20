@@ -256,6 +256,8 @@ var defaultModelRatio = map[string]float64{
 	"grok-vision-beta":      2.5,
 	"grok-3-fast-beta":      2.5,
 	"grok-3-mini-fast-beta": 0.3,
+	"grok-4":               1.5,
+	"grok-4-0709":          1.5,
 	// submodel
 	"NousResearch/Hermes-4-405B-FP8":          0.8,
 	"Qwen/Qwen3-235B-A22B-Thinking-2507":      0.6,
@@ -297,6 +299,9 @@ var defaultModelPrice = map[string]float64{
 	"sora-2":                         0.3,
 	"sora-2-pro":                     0.5,
 	"gpt-4o-mini-tts":                0.3,
+	"grok-imagine-image":             0.02,
+	"grok-imagine-image-pro":         0.07,
+	"grok-imagine-video":             0.05,
 }
 
 var defaultAudioRatio = map[string]float64{
