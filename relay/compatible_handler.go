@@ -331,7 +331,7 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 	if xaiInputImageCount > 0 {
 		xaiInputImagePrice = ctx.GetFloat64("xai_input_image_price")
 		if xaiInputImagePrice <= 0 {
-			xaiInputImagePrice = 0.02
+			xaiInputImagePrice = 0.002
 		}
 		dXaiInputImageQuota = decimal.NewFromFloat(xaiInputImagePrice).
 			Mul(decimal.NewFromInt(int64(xaiInputImageCount))).

@@ -297,6 +297,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	// insert task
 	task := model.InitTask(platform, info)
 	task.TaskID = taskID
+	task.Status = model.TaskStatusSubmitted
 	task.Quota = quota
 	task.Data = taskData
 	task.Action = info.Action

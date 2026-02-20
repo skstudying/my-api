@@ -129,6 +129,7 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	} else {
 		ov.Model = info.OriginModelName
 	}
+	ov.SetMetadata("request_id", sResp.RequestID)
 	c.JSON(http.StatusOK, ov)
 
 	return sResp.RequestID, responseBody, nil
@@ -184,7 +185,14 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Reason = "request expired"
 	default:
-		taskResult.Status = model.TaskStatusInProgress
+		// xAI may omit the "status" field when video is ready,
+		// returning only "video" + "model" in the response.
+		if pResp.Video != nil && pResp.Video.URL != "" {
+			taskResult.Status = model.TaskStatusSuccess
+			taskResult.Url = pResp.Video.URL
+		} else {
+			taskResult.Status = model.TaskStatusQueued
+		}
 	}
 
 	return &taskResult, nil
@@ -204,6 +212,7 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	if task.Properties.OriginModelName != "" {
 		ov.Model = task.Properties.OriginModelName
 	}
+	ov.SetMetadata("request_id", task.TaskID)
 	if task.FailReason != "" {
 		if task.Status == model.TaskStatusSuccess {
 			ov.SetMetadata("url", task.FailReason)

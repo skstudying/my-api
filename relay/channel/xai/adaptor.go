@@ -84,7 +84,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		}
 		if inputImageCount > 0 {
 			c.Set("xai_input_image_count", inputImageCount)
-			c.Set("xai_input_image_price", 0.02) // $0.02 per input image
+			c.Set("xai_input_image_price", 0.002) // $0.002 per input image
 		}
 	}
 
