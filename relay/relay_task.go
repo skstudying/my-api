@@ -410,7 +410,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 	func() {
 		channelModel, err2 := model.GetChannelById(originTask.ChannelId, true)
 		if err2 != nil {
-			common.SysLog(fmt.Sprintf("video task %s: get channel failed: %v", originTask.TaskID, err2))
+			common.SysLog(fmt.Sprintf("[video-poll] GetChannelById(%d) failed: %v", originTask.ChannelId, err2))
 			return
 		}
 		if channelModel.Type != constant.ChannelTypeVertexAi && channelModel.Type != constant.ChannelTypeGemini && channelModel.Type != constant.ChannelTypeXai {
@@ -423,31 +423,27 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		proxy := channelModel.GetSetting().Proxy
 		adaptor := GetTaskAdaptor(constant.TaskPlatform(strconv.Itoa(channelModel.Type)))
 		if adaptor == nil {
-			common.SysLog(fmt.Sprintf("video task %s: no adaptor for channel type %d", originTask.TaskID, channelModel.Type))
+			common.SysLog(fmt.Sprintf("[video-poll] GetTaskAdaptor(%d) returned nil", channelModel.Type))
 			return
 		}
 		resp, err2 := adaptor.FetchTask(baseURL, channelModel.Key, map[string]any{
 			"task_id": originTask.TaskID,
 			"action":  originTask.Action,
 		}, proxy)
-		if err2 != nil || resp == nil {
-			common.SysLog(fmt.Sprintf("video task %s: fetch from upstream failed: %v", originTask.TaskID, err2))
+		if err2 != nil {
+			common.SysLog(fmt.Sprintf("[video-poll] FetchTask(%s) failed: %v", originTask.TaskID, err2))
+			return
+		}
+		if resp == nil {
 			return
 		}
 		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			errBody, _ := io.ReadAll(resp.Body)
-			common.SysLog(fmt.Sprintf("video task %s: upstream returned HTTP %d: %s", originTask.TaskID, resp.StatusCode, string(errBody)))
-			return
-		}
 		body, err2 := io.ReadAll(resp.Body)
 		if err2 != nil {
 			return
 		}
+		common.SysLog(fmt.Sprintf("[video-poll] task=%s resp=%s", originTask.TaskID, string(body)))
 		ti, err2 := adaptor.ParseTaskResult(body)
-		if err2 != nil {
-			common.SysLog(fmt.Sprintf("video task %s: parse result failed: %v", originTask.TaskID, err2))
-		}
 		if err2 == nil && ti != nil {
 			if ti.Status != "" {
 				originTask.Status = model.TaskStatus(ti.Status)

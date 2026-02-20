@@ -24,13 +24,9 @@ type submitResponse struct {
 }
 
 type pollResponse struct {
-	Status string     `json:"status"` // pending, in_progress, done, expired
+	Status string     `json:"status"` // pending, done, expired
 	Video  *videoData `json:"video,omitempty"`
 	Model  string     `json:"model,omitempty"`
-	Error  *struct {
-		Message string `json:"message"`
-		Type    string `json:"type"`
-	} `json:"error,omitempty"`
 }
 
 type videoData struct {
@@ -145,14 +141,8 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 
-	// Handle multi-key channels: use first key only
-	if strings.Contains(key, "\n") {
-		key = strings.SplitN(strings.TrimSpace(key), "\n", 2)[0]
-	}
-
-	// Strip trailing /v1 from baseUrl to avoid double path segments
-	baseUrl = strings.TrimSuffix(baseUrl, "/v1")
-	baseUrl = strings.TrimSuffix(baseUrl, "/")
+	// Handle multi-key channels: use only the first key
+	key = strings.TrimSpace(strings.SplitN(key, "\n", 2)[0])
 
 	uri := fmt.Sprintf("%s/v1/videos/%s", baseUrl, taskID)
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
@@ -165,7 +155,16 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
-	return client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("xAI video poll returned HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	return resp, nil
 }
 
 func (a *TaskAdaptor) GetModelList() []string {
@@ -179,11 +178,7 @@ func (a *TaskAdaptor) GetChannelName() string {
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
 	var pResp pollResponse
 	if err := common.Unmarshal(respBody, &pResp); err != nil {
-		return nil, fmt.Errorf("unmarshal task result failed: %w, body: %s", err, string(respBody))
-	}
-
-	if pResp.Error != nil {
-		return nil, fmt.Errorf("xAI API error: %s (type: %s)", pResp.Error.Message, pResp.Error.Type)
+		return nil, fmt.Errorf("unmarshal task result failed: %w", err)
 	}
 
 	taskResult := relaycommon.TaskInfo{
@@ -193,8 +188,6 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	switch pResp.Status {
 	case "pending":
 		taskResult.Status = model.TaskStatusQueued
-	case "in_progress":
-		taskResult.Status = model.TaskStatusInProgress
 	case "done":
 		taskResult.Status = model.TaskStatusSuccess
 		if pResp.Video != nil {
