@@ -85,7 +85,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	return fmt.Sprintf("%s/v1/videos/generations", a.baseURL), nil
+	base := strings.TrimSuffix(strings.TrimSuffix(a.baseURL, "/"), "/v1")
+	return fmt.Sprintf("%s/v1/videos/generations", base), nil
 }
 
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
@@ -143,6 +144,8 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 
 	// Handle multi-key channels: use only the first key
 	key = strings.TrimSpace(strings.SplitN(key, "\n", 2)[0])
+	// Strip trailing /v1 from baseUrl to avoid double path segments
+	baseUrl = strings.TrimSuffix(strings.TrimSuffix(baseUrl, "/"), "/v1")
 
 	uri := fmt.Sprintf("%s/v1/videos/%s", baseUrl, taskID)
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
@@ -158,6 +161,15 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		// xAI returns 404 when the video task has expired or doesn't exist
+		resp.Body.Close()
+		expired := `{"status":"expired"}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(expired)),
+		}, nil
 	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
