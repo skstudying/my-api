@@ -136,6 +136,11 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		logContent = append(logContent, fmt.Sprintf("生成数量 %d", request.N))
 	}
 
+	// Per-image pricing: when N > 1, multiply cost by image count
+	if info.PriceData.UsePrice && request.N > 1 {
+		info.PriceData.AddOtherRatio("images", float64(request.N))
+	}
+
 	postConsumeQuota(c, info, usage.(*dto.Usage), logContent...)
 	return nil
 }

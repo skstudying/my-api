@@ -190,6 +190,19 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 		return
 	}
 	quota := int(ratio * common.QuotaPerUnit)
+
+	// xAI input image billing (additive, set by xAI video task adaptor)
+	xaiInputImageCount := c.GetInt("xai_input_image_count")
+	xaiInputImagePrice := c.GetFloat64("xai_input_image_price")
+	if xaiInputImageCount > 0 && xaiInputImagePrice > 0 {
+		effectiveGroupRatio := groupRatio
+		if hasUserGroupRatio {
+			effectiveGroupRatio = userGroupRatio
+		}
+		xaiInputImageQuota := int(xaiInputImagePrice * float64(xaiInputImageCount) * effectiveGroupRatio * common.QuotaPerUnit)
+		quota += xaiInputImageQuota
+	}
+
 	if userQuota-quota < 0 {
 		taskErr = service.TaskErrorWrapperLocal(errors.New("user quota is not enough"), "quota_not_enough", http.StatusForbidden)
 		return
@@ -253,6 +266,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 				other["group_ratio"] = groupRatio
 				if hasUserGroupRatio {
 					other["user_group_ratio"] = userGroupRatio
+				}
+				if xaiInputImageCount > 0 && xaiInputImagePrice > 0 {
+					logContent = fmt.Sprintf("%s, 输入图片 %d 张 ($%.4f/张)", logContent, xaiInputImageCount, xaiInputImagePrice)
+					other["xai_input_image"] = true
+					other["xai_input_image_count"] = xaiInputImageCount
+					other["xai_input_image_price"] = xaiInputImagePrice
 				}
 				model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 					ChannelId: info.ChannelId,

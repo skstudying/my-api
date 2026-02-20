@@ -2,6 +2,7 @@ package xai
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,10 +50,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 
 	var req struct {
-		Duration       int    `json:"duration"`
-		Seconds        string `json:"seconds"`
-		AspectRatio    string `json:"aspect_ratio"`
-		Resolution     string `json:"resolution"`
+		Duration    int             `json:"duration"`
+		Seconds     string          `json:"seconds"`
+		AspectRatio string          `json:"aspect_ratio"`
+		Resolution  string          `json:"resolution"`
+		Image       json.RawMessage `json:"image"`
 	}
 	_ = common.UnmarshalBodyReusable(c, &req)
 
@@ -69,7 +71,13 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		"seconds": float64(seconds),
 	}
 	if req.Resolution == "720p" {
-		info.PriceData.OtherRatios["resolution(720p)"] = 1.5
+		info.PriceData.OtherRatios["resolution(720p)"] = 1.4 // $0.07 / $0.05 = 1.4
+	}
+
+	// grok-imagine-video input image billing: $0.002 per input image
+	if len(req.Image) > 0 {
+		c.Set("xai_input_image_count", 1)
+		c.Set("xai_input_image_price", 0.002)
 	}
 
 	return nil

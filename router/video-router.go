@@ -22,6 +22,12 @@ func SetVideoRouter(router *gin.Engine) {
 		videoV1Router.POST("/videos", controller.RelayTask)
 		videoV1Router.GET("/videos/:task_id", controller.RelayTask)
 	}
+	// xAI native video routes
+	// docs: https://docs.x.ai/developers/model-capabilities/video/generation
+	{
+		videoV1Router.POST("/videos/generations", controller.RelayTask)
+		videoV1Router.GET("/videos/generations/:task_id", controller.RelayTask)
+	}
 
 	klingV1Router := router.Group("/kling/v1")
 	klingV1Router.Use(middleware.KlingRequestConvert(), middleware.TokenAuth(), middleware.Distribute())

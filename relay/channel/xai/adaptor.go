@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -45,21 +46,48 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		ResponseFormat: request.ResponseFormat,
 		Image:          request.Image,
 	}
-	if v, ok := request.Extra["aspect_ratio"]; ok {
-		var ar string
-		if json.Unmarshal(v, &ar) == nil {
-			xaiRequest.AspectRatio = ar
+
+	// Re-read raw body to reliably extract xAI-specific fields.
+	// The Extra map populated via dto.ImageRequest.UnmarshalJSON may lose data
+	// during DeepCopy (copier IgnoreEmpty), so parsing from cached body is safer.
+	body, err := common.GetRequestBody(c)
+	if err == nil {
+		var raw struct {
+			AspectRatio string          `json:"aspect_ratio"`
+			Resolution  string          `json:"resolution"`
+			Images      json.RawMessage `json:"images"`
+		}
+		if json.Unmarshal(body, &raw) == nil {
+			if raw.AspectRatio != "" {
+				xaiRequest.AspectRatio = raw.AspectRatio
+			}
+			if raw.Resolution != "" {
+				xaiRequest.Resolution = raw.Resolution
+			}
+			if raw.Images != nil {
+				xaiRequest.Images = raw.Images
+			}
 		}
 	}
-	if v, ok := request.Extra["resolution"]; ok {
-		var res string
-		if json.Unmarshal(v, &res) == nil {
-			xaiRequest.Resolution = res
+
+	// Count input images for xAI per-image input billing (grok-imagine-image only)
+	if strings.HasPrefix(request.Model, "grok-imagine-image") {
+		inputImageCount := 0
+		if len(xaiRequest.Image) > 0 {
+			inputImageCount = 1
+		}
+		if xaiRequest.Images != nil {
+			var imageArr []json.RawMessage
+			if json.Unmarshal(xaiRequest.Images, &imageArr) == nil {
+				inputImageCount = len(imageArr)
+			}
+		}
+		if inputImageCount > 0 {
+			c.Set("xai_input_image_count", inputImageCount)
+			c.Set("xai_input_image_price", 0.02) // $0.02 per input image
 		}
 	}
-	if v, ok := request.Extra["images"]; ok {
-		xaiRequest.Images = v
-	}
+
 	return xaiRequest, nil
 }
 

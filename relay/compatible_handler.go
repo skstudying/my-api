@@ -324,6 +324,22 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 %s", dImageGenerationCallQuota.String()))
 	}
 
+	// xAI input image billing (additive, set by xAI adaptor for grok-imagine-image models)
+	var dXaiInputImageQuota decimal.Decimal
+	var xaiInputImagePrice float64
+	xaiInputImageCount := ctx.GetInt("xai_input_image_count")
+	if xaiInputImageCount > 0 {
+		xaiInputImagePrice = ctx.GetFloat64("xai_input_image_price")
+		if xaiInputImagePrice <= 0 {
+			xaiInputImagePrice = 0.02
+		}
+		dXaiInputImageQuota = decimal.NewFromFloat(xaiInputImagePrice).
+			Mul(decimal.NewFromInt(int64(xaiInputImageCount))).
+			Mul(dGroupRatio).Mul(dQuotaPerUnit)
+		extraContent = append(extraContent, fmt.Sprintf("xAI 输入图片 %d 张，$%.4f/张，花费 %s",
+			xaiInputImageCount, xaiInputImagePrice, dXaiInputImageQuota.String()))
+	}
+
 	var quotaCalculateDecimal decimal.Decimal
 
 	isGeminiImageInCache := (relayInfo.ChannelType == constant.ChannelTypeGemini ||
@@ -412,6 +428,9 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 			extraContent = append(extraContent, fmt.Sprintf("其他倍率 %s: %f", key, otherRatio))
 		}
 	}
+
+	// 添加 xAI 输入图片计费（放在 OtherRatios 之后，避免被 images N 倍率重复乘算）
+	quotaCalculateDecimal = quotaCalculateDecimal.Add(dXaiInputImageQuota)
 
 	quota := int(quotaCalculateDecimal.Round(0).IntPart())
 	totalTokens := promptTokens + completionTokens
@@ -519,6 +538,11 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 	if !dImageGenerationCallQuota.IsZero() {
 		other["image_generation_call"] = true
 		other["image_generation_call_price"] = imageGenerationCallPrice
+	}
+	if !dXaiInputImageQuota.IsZero() {
+		other["xai_input_image"] = true
+		other["xai_input_image_count"] = xaiInputImageCount
+		other["xai_input_image_price"] = xaiInputImagePrice
 	}
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
