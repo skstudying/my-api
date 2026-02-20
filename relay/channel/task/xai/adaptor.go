@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -23,9 +24,13 @@ type submitResponse struct {
 }
 
 type pollResponse struct {
-	Status string     `json:"status"` // pending, done, expired
+	Status string     `json:"status"` // pending, in_progress, done, expired
 	Video  *videoData `json:"video,omitempty"`
 	Model  string     `json:"model,omitempty"`
+	Error  *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error,omitempty"`
 }
 
 type videoData struct {
@@ -129,7 +134,6 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	} else {
 		ov.Model = info.OriginModelName
 	}
-	ov.SetMetadata("request_id", sResp.RequestID)
 	c.JSON(http.StatusOK, ov)
 
 	return sResp.RequestID, responseBody, nil
@@ -140,6 +144,15 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 	if !ok {
 		return nil, fmt.Errorf("invalid task_id")
 	}
+
+	// Handle multi-key channels: use first key only
+	if strings.Contains(key, "\n") {
+		key = strings.SplitN(strings.TrimSpace(key), "\n", 2)[0]
+	}
+
+	// Strip trailing /v1 from baseUrl to avoid double path segments
+	baseUrl = strings.TrimSuffix(baseUrl, "/v1")
+	baseUrl = strings.TrimSuffix(baseUrl, "/")
 
 	uri := fmt.Sprintf("%s/v1/videos/%s", baseUrl, taskID)
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
@@ -166,7 +179,11 @@ func (a *TaskAdaptor) GetChannelName() string {
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
 	var pResp pollResponse
 	if err := common.Unmarshal(respBody, &pResp); err != nil {
-		return nil, fmt.Errorf("unmarshal task result failed: %w", err)
+		return nil, fmt.Errorf("unmarshal task result failed: %w, body: %s", err, string(respBody))
+	}
+
+	if pResp.Error != nil {
+		return nil, fmt.Errorf("xAI API error: %s (type: %s)", pResp.Error.Message, pResp.Error.Type)
 	}
 
 	taskResult := relaycommon.TaskInfo{
@@ -176,6 +193,8 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	switch pResp.Status {
 	case "pending":
 		taskResult.Status = model.TaskStatusQueued
+	case "in_progress":
+		taskResult.Status = model.TaskStatusInProgress
 	case "done":
 		taskResult.Status = model.TaskStatusSuccess
 		if pResp.Video != nil {
@@ -212,7 +231,6 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	if task.Properties.OriginModelName != "" {
 		ov.Model = task.Properties.OriginModelName
 	}
-	ov.SetMetadata("request_id", task.TaskID)
 	if task.FailReason != "" {
 		if task.Status == model.TaskStatusSuccess {
 			ov.SetMetadata("url", task.FailReason)
