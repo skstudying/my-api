@@ -709,6 +709,8 @@
     "图片生成调用：{{symbol}}{{price}} / 1次": "图片生成调用：{{symbol}}{{price}} / 1次",
     "图片输入: {{imageRatio}}": "图片输入: {{imageRatio}}",
     "图片输入价格：{{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (图片倍率: {{imageRatio}})": "图片输入价格：{{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (图片倍率: {{imageRatio}})",
+    "图片输入 {{imageTokens}} tokens，与文字同价并参与缓存计算": "图片输入 {{imageTokens}} tokens，与文字同价并参与缓存计算",
+    "(输入 {{nonCacheInput}} tokens（含图片 {{imageTokens}}） / 1M tokens * {{symbol}}{{price}} + 缓存 {{cacheInput}} tokens（含图片） / 1M tokens * {{symbol}}{{cachePrice}}": "(输入 {{nonCacheInput}} tokens（含图片 {{imageTokens}}） / 1M tokens * {{symbol}}{{price}} + 缓存 {{cacheInput}} tokens（含图片） / 1M tokens * {{symbol}}{{cachePrice}}",
     "图片输入倍率（仅部分模型支持该计费）": "图片输入倍率（仅部分模型支持该计费）",
     "图片输入相关的倍率设置，键为模型名称，值为倍率，仅部分模型支持该计费": "图片输入相关的倍率设置，键为模型名称，值为倍率，仅部分模型支持该计费",
     "图生文": "图生文",

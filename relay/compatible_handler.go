@@ -326,6 +326,9 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 
 	var quotaCalculateDecimal decimal.Decimal
 
+	isGeminiImageInCache := (relayInfo.ChannelType == constant.ChannelTypeGemini ||
+		relayInfo.ChannelType == constant.ChannelTypeVertexAi) && imageRatio == 1
+
 	var audioInputQuota decimal.Decimal
 	var audioInputPrice float64
 	if !relayInfo.PriceData.UsePrice {
@@ -349,8 +352,10 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		}
 
 		// 减去 image tokens
+		// Gemini/Vertex AI 且 imageRatio==1 时，图片输入与文字同价且统一参与 Google 的隐式缓存，
+		// 不应将图片 token 独立计费；若管理员为某些模型显式配置了不同的 imageRatio，则仍独立计费
 		var imageTokensWithRatio decimal.Decimal
-		if !dImageTokens.IsZero() {
+		if !dImageTokens.IsZero() && !isGeminiImageInCache {
 			baseTokens = baseTokens.Sub(dImageTokens)
 			imageTokensWithRatio = dImageTokens.Mul(dImageRatio)
 		}
@@ -466,9 +471,13 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 	logContent := strings.Join(extraContent, ", ")
 	other := service.GenerateTextOtherInfo(ctx, relayInfo, modelRatio, groupRatio, completionRatio, cacheTokens, cacheRatio, modelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	if imageTokens != 0 {
-		other["image"] = true
-		other["image_ratio"] = imageRatio
-		other["image_input_tokens"] = imageTokens
+		if isGeminiImageInCache {
+			other["image_input_tokens"] = imageTokens
+		} else {
+			other["image"] = true
+			other["image_ratio"] = imageRatio
+			other["image_input_tokens"] = imageTokens
+		}
 	}
 	if completionImageTokens != 0 {
 		other["completion_image_tokens"] = completionImageTokens

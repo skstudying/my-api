@@ -1332,6 +1332,14 @@ export function renderModelPrice(
               )}
             </p>
           )}
+          {!image && imageInputTokens > 0 && (
+            <p style={{ color: '#666', fontSize: '0.9em' }}>
+              {i18next.t(
+                '图片输入 {{imageTokens}} tokens，与文字同价并参与缓存计算',
+                { imageTokens: imageInputTokens },
+              )}
+            </p>
+          )}
           {webSearch && webSearchCallCount > 0 && (
             <p>
               {i18next.t('Web搜索价格：{{symbol}}{{price}} / 1K 次', {
@@ -1369,6 +1377,18 @@ export function renderModelPrice(
                     imageRatio: imageRatio,
                     symbol: symbol,
                     price: (inputRatioPrice * rate).toFixed(6),
+                  },
+                );
+              } else if (cacheTokens > 0 && !image && imageInputTokens > 0) {
+                inputDesc = i18next.t(
+                  '(输入 {{nonCacheInput}} tokens（含图片 {{imageTokens}}） / 1M tokens * {{symbol}}{{price}} + 缓存 {{cacheInput}} tokens（含图片） / 1M tokens * {{symbol}}{{cachePrice}}',
+                  {
+                    nonCacheInput: inputTokens - cacheTokens,
+                    imageTokens: imageInputTokens,
+                    cacheInput: cacheTokens,
+                    symbol: symbol,
+                    price: (inputRatioPrice * rate).toFixed(6),
+                    cachePrice: (cacheRatioPrice * rate).toFixed(6),
                   },
                 );
               } else if (cacheTokens > 0) {
