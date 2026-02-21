@@ -68,15 +68,16 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		seconds = s
 	}
 	if seconds <= 0 {
-		if isVideoEdit {
-			seconds = 8 // video edits: output duration = input duration, max 8.7s truncated to 8s
-		} else {
-			seconds = 5
-		}
+		seconds = 5
+	}
+
+	billingSeconds := float64(seconds)
+	if isVideoEdit {
+		billingSeconds = 8.7 // video edits: output = input duration, max 8.7s; always bill at max
 	}
 
 	info.PriceData.OtherRatios = map[string]float64{
-		"seconds": float64(seconds),
+		"seconds": billingSeconds,
 	}
 	if req.Resolution == "720p" {
 		info.PriceData.OtherRatios["resolution(720p)"] = 1.4 // $0.07 / $0.05 = 1.4
@@ -89,8 +90,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 
 	// grok-imagine-video input video billing: $0.01 per second (video edits)
-	if len(req.Video) > 0 {
-		c.Set("xai_input_video_seconds", seconds)
+	if isVideoEdit {
+		c.Set("xai_input_video_seconds", billingSeconds)
 		c.Set("xai_input_video_price", 0.01)
 	}
 
@@ -220,16 +221,16 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		taskResult.Status = model.TaskStatusSuccess
 		if pResp.Video != nil {
 			taskResult.Url = pResp.Video.URL
+			taskResult.Duration = pResp.Video.Duration
 		}
 	case "expired":
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Reason = "request expired"
 	default:
-		// xAI may omit the "status" field when video is ready,
-		// returning only "video" + "model" in the response.
 		if pResp.Video != nil && pResp.Video.URL != "" {
 			taskResult.Status = model.TaskStatusSuccess
 			taskResult.Url = pResp.Video.URL
+			taskResult.Duration = pResp.Video.Duration
 		} else {
 			taskResult.Status = model.TaskStatusQueued
 		}

@@ -340,22 +340,6 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 			xaiInputImageCount, xaiInputImagePrice, dXaiInputImageQuota.String()))
 	}
 
-	// xAI input video billing (additive, set by xAI adaptor for video edits)
-	var dXaiInputVideoQuota decimal.Decimal
-	var xaiInputVideoPrice float64
-	xaiInputVideoSeconds := ctx.GetInt("xai_input_video_seconds")
-	if xaiInputVideoSeconds > 0 {
-		xaiInputVideoPrice = ctx.GetFloat64("xai_input_video_price")
-		if xaiInputVideoPrice <= 0 {
-			xaiInputVideoPrice = 0.01
-		}
-		dXaiInputVideoQuota = decimal.NewFromFloat(xaiInputVideoPrice).
-			Mul(decimal.NewFromInt(int64(xaiInputVideoSeconds))).
-			Mul(dGroupRatio).Mul(dQuotaPerUnit)
-		extraContent = append(extraContent, fmt.Sprintf("xAI 输入视频 %d 秒，$%.4f/秒，花费 %s",
-			xaiInputVideoSeconds, xaiInputVideoPrice, dXaiInputVideoQuota.String()))
-	}
-
 	var quotaCalculateDecimal decimal.Decimal
 
 	isGeminiImageInCache := (relayInfo.ChannelType == constant.ChannelTypeGemini ||
@@ -447,8 +431,6 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 
 	// 添加 xAI 输入图片计费（放在 OtherRatios 之后，避免被 images N 倍率重复乘算）
 	quotaCalculateDecimal = quotaCalculateDecimal.Add(dXaiInputImageQuota)
-	// 添加 xAI 输入视频计费
-	quotaCalculateDecimal = quotaCalculateDecimal.Add(dXaiInputVideoQuota)
 
 	quota := int(quotaCalculateDecimal.Round(0).IntPart())
 	totalTokens := promptTokens + completionTokens
@@ -561,11 +543,6 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		other["xai_input_image"] = true
 		other["xai_input_image_count"] = xaiInputImageCount
 		other["xai_input_image_price"] = xaiInputImagePrice
-	}
-	if !dXaiInputVideoQuota.IsZero() {
-		other["xai_input_video"] = true
-		other["xai_input_video_seconds"] = xaiInputVideoSeconds
-		other["xai_input_video_price"] = xaiInputVideoPrice
 	}
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,

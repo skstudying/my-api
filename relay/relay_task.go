@@ -207,14 +207,14 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	}
 
 	// xAI input video billing (additive, set by xAI video task adaptor for video edits)
-	xaiInputVideoSeconds := c.GetInt("xai_input_video_seconds")
+	xaiInputVideoSeconds := c.GetFloat64("xai_input_video_seconds")
 	xaiInputVideoPrice := c.GetFloat64("xai_input_video_price")
 	if xaiInputVideoSeconds > 0 && xaiInputVideoPrice > 0 {
 		effectiveGroupRatio := groupRatio
 		if hasUserGroupRatio {
 			effectiveGroupRatio = userGroupRatio
 		}
-		xaiInputVideoQuota := int(xaiInputVideoPrice * float64(xaiInputVideoSeconds) * effectiveGroupRatio * common.QuotaPerUnit)
+		xaiInputVideoQuota := int(xaiInputVideoPrice * xaiInputVideoSeconds * effectiveGroupRatio * common.QuotaPerUnit)
 		quota += xaiInputVideoQuota
 	}
 
@@ -289,7 +289,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 					other["xai_input_image_price"] = xaiInputImagePrice
 				}
 				if xaiInputVideoSeconds > 0 && xaiInputVideoPrice > 0 {
-					logContent = fmt.Sprintf("%s, 输入视频 %d 秒 ($%.4f/秒)", logContent, xaiInputVideoSeconds, xaiInputVideoPrice)
+					logContent = fmt.Sprintf("%s, 输入视频 %.1f 秒 ($%.4f/秒)", logContent, xaiInputVideoSeconds, xaiInputVideoPrice)
 					other["xai_input_video"] = true
 					other["xai_input_video_seconds"] = xaiInputVideoSeconds
 					other["xai_input_video_price"] = xaiInputVideoPrice
@@ -466,6 +466,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		common.SysLog(fmt.Sprintf("[video-poll] task=%s resp=%s", originTask.TaskID, string(body)))
 		ti, err2 := adaptor.ParseTaskResult(body)
 		if err2 == nil && ti != nil {
+			prevStatus := originTask.Status
 			if ti.Status != "" {
 				originTask.Status = model.TaskStatus(ti.Status)
 			}
@@ -478,6 +479,29 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 					originTask.FailReason = ti.Url
 				}
 			}
+
+			// Video edit billing adjustment: refund proportionally based on actual duration
+			if prevStatus != model.TaskStatusSuccess &&
+				originTask.Status == model.TaskStatusSuccess &&
+				originTask.Action == constant.TaskActionEdit &&
+				ti.Duration > 0 && originTask.Quota > 0 {
+				const maxDuration = 8.7
+				actualDuration := ti.Duration
+				if actualDuration < maxDuration {
+					refundQuota := int(float64(originTask.Quota) * (maxDuration - actualDuration) / maxDuration)
+					if refundQuota > 0 {
+						err3 := model.IncreaseUserQuota(originTask.UserId, refundQuota, false)
+						if err3 == nil {
+							originTask.Quota -= refundQuota
+							common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s actual=%.1fs pre=%.1fs refund=%d final_quota=%d",
+								originTask.TaskID, actualDuration, maxDuration, refundQuota, originTask.Quota))
+						} else {
+							common.SysLog(fmt.Sprintf("[video-edit-billing] refund failed: task=%s err=%v", originTask.TaskID, err3))
+						}
+					}
+				}
+			}
+
 			_ = originTask.Update()
 			var raw map[string]any
 			_ = json.Unmarshal(body, &raw)
