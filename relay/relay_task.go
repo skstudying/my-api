@@ -250,12 +250,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 			if err != nil {
 				common.SysLog("error consuming token remain quota: " + err.Error())
 			}
-			if quota != 0 {
+			// Video edit: defer billing log to task completion (actual duration known then)
+			if quota != 0 && info.Action != constant.TaskActionEdit {
 				tokenName := c.GetString("token_name")
-				//gRatio := groupRatio
-				//if hasUserGroupRatio {
-				//	gRatio = userGroupRatio
-				//}
 				logContent := fmt.Sprintf("操作 %s", info.Action)
 				// FIXME: 临时修补，支持任务仅按次计费
 				if common.StringsContains(constant.TaskPricePatches, modelName) {
@@ -288,12 +285,6 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 					other["xai_input_image_count"] = xaiInputImageCount
 					other["xai_input_image_price"] = xaiInputImagePrice
 				}
-				if xaiInputVideoSeconds > 0 && xaiInputVideoPrice > 0 {
-					logContent = fmt.Sprintf("%s, 输入视频 %.1f 秒 ($%.4f/秒)", logContent, xaiInputVideoSeconds, xaiInputVideoPrice)
-					other["xai_input_video"] = true
-					other["xai_input_video_seconds"] = xaiInputVideoSeconds
-					other["xai_input_video_price"] = xaiInputVideoPrice
-				}
 				model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 					ChannelId: info.ChannelId,
 					ModelName: modelName,
@@ -322,6 +313,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	task.Quota = quota
 	task.Data = taskData
 	task.Action = info.Action
+	if info.Action == constant.TaskActionEdit {
+		task.PrivateData.TokenId = info.TokenId
+		task.PrivateData.TokenKey = info.TokenKey
+		task.PrivateData.TokenName = c.GetString("token_name")
+	}
 	err = task.Insert()
 	if err != nil {
 		taskErr = service.TaskErrorWrapper(err, "insert_task_failed", http.StatusInternalServerError)
@@ -487,31 +483,71 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 				originTask.Data = body
 			}
 
-			// xAI video edit billing adjustment on completion
+			// xAI video edit: deferred billing on success (write real cost instead of pre-charge)
 			if statusChanged && originTask.Status == model.TaskStatusSuccess &&
 				originTask.Action == constant.TaskActionEdit &&
 				ti.Duration > 0 && originTask.Quota > 0 {
 				const maxDuration = 8.7
-				if ti.Duration < maxDuration {
-					refundQuota := int(float64(originTask.Quota) * (maxDuration - ti.Duration) / maxDuration)
-					if refundQuota > 0 {
-						if err3 := model.IncreaseUserQuota(originTask.UserId, refundQuota, false); err3 == nil {
-							originTask.Quota -= refundQuota
-							common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s actual=%.1fs refund=%d final_quota=%d",
-								originTask.TaskID, ti.Duration, refundQuota, originTask.Quota))
-						}
+				actualDuration := ti.Duration
+				if actualDuration > maxDuration {
+					actualDuration = maxDuration
+				}
+				actualQuota := originTask.Quota
+				if actualDuration < maxDuration {
+					actualQuota = int(float64(originTask.Quota) * actualDuration / maxDuration)
+					if actualQuota <= 0 {
+						actualQuota = 1
 					}
 				}
+				refundQuota := originTask.Quota - actualQuota
+				if refundQuota > 0 {
+					model.IncreaseUserQuota(originTask.UserId, refundQuota, false)
+					if originTask.PrivateData.TokenId > 0 && originTask.PrivateData.TokenKey != "" {
+						model.IncreaseTokenQuota(originTask.PrivateData.TokenId, originTask.PrivateData.TokenKey, refundQuota)
+					}
+				}
+				originTask.Quota = actualQuota
+
+				modelName := originTask.Properties.OriginModelName
+				modelPrice, _ := ratio_setting.GetModelPrice(modelName, true)
+				groupRatio := ratio_setting.GetGroupRatio(originTask.Group)
+				logContent := fmt.Sprintf("操作 %s, 实际视频 %.1f 秒, 输入视频 %.1f 秒 ($0.0100/秒)",
+					originTask.Action, actualDuration, actualDuration)
+				other := map[string]interface{}{
+					"request_path":            "/v1/videos/edits",
+					"model_price":             modelPrice,
+					"group_ratio":             groupRatio,
+					"xai_input_video":         true,
+					"xai_input_video_seconds": actualDuration,
+					"xai_input_video_price":   0.01,
+				}
+				model.RecordConsumeLog(c, originTask.UserId, model.RecordConsumeLogParams{
+					ChannelId: originTask.ChannelId,
+					ModelName: modelName,
+					TokenName: originTask.PrivateData.TokenName,
+					Quota:     actualQuota,
+					Content:   logContent,
+					TokenId:   originTask.PrivateData.TokenId,
+					Group:     originTask.Group,
+					Other:     other,
+				})
+				model.UpdateUserUsedQuotaAndRequestCount(originTask.UserId, actualQuota)
+				model.UpdateChannelUsedQuota(originTask.ChannelId, actualQuota)
+				common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s actual=%.1fs quota=%d refund=%d",
+					originTask.TaskID, actualDuration, actualQuota, refundQuota))
 			}
 
-			// xAI video edit full refund on failure
+			// xAI video edit: full refund on failure
 			if statusChanged && originTask.Status == model.TaskStatusFailure &&
 				originTask.Action == constant.TaskActionEdit &&
 				originTask.Quota > 0 {
-				if err3 := model.IncreaseUserQuota(originTask.UserId, originTask.Quota, false); err3 == nil {
-					common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s failed, full refund=%d", originTask.TaskID, originTask.Quota))
-					originTask.Quota = 0
+				refundQuota := originTask.Quota
+				model.IncreaseUserQuota(originTask.UserId, refundQuota, false)
+				if originTask.PrivateData.TokenId > 0 && originTask.PrivateData.TokenKey != "" {
+					model.IncreaseTokenQuota(originTask.PrivateData.TokenId, originTask.PrivateData.TokenKey, refundQuota)
 				}
+				common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s failed, full refund=%d", originTask.TaskID, refundQuota))
+				originTask.Quota = 0
 			}
 
 			_ = originTask.Update()

@@ -95,7 +95,10 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key string `json:"key,omitempty"`
+	Key       string `json:"key,omitempty"`
+	TokenId   int    `json:"token_id,omitempty"`
+	TokenKey  string `json:"token_key,omitempty"`
+	TokenName string `json:"token_name,omitempty"`
 }
 
 func (p *TaskPrivateData) Scan(val interface{}) error {
