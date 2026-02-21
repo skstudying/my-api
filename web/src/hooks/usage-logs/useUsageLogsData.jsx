@@ -471,6 +471,18 @@ export const useLogsData = () => {
           key: t('计费过程'),
           value: content,
         });
+        if (other?.xai_input_image && other?.xai_input_image_count > 0) {
+          expandDataLocal.push({
+            key: t('xAI 输入图片'),
+            value: `${other.xai_input_image_count} 张，$${other.xai_input_image_price?.toFixed(4)}/张`,
+          });
+        }
+        if (other?.xai_input_video && other?.xai_input_video_seconds > 0) {
+          expandDataLocal.push({
+            key: t('xAI 输入视频'),
+            value: `${other.xai_input_video_seconds} 秒，$${other.xai_input_video_price?.toFixed(4)}/秒`,
+          });
+        }
         if (other?.reasoning_effort) {
           expandDataLocal.push({
             key: t('Reasoning Effort'),

@@ -36,6 +36,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	if strings.Contains(path, "/v1/videos/") && strings.HasSuffix(path, "/remix") {
 		info.Action = constant.TaskActionRemix
 	}
+	if strings.HasSuffix(path, "/videos/edits") {
+		info.Action = constant.TaskActionEdit
+	}
 
 	// 提取 remix 任务的 video_id
 	if info.Action == constant.TaskActionRemix {
@@ -203,6 +206,18 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 		quota += xaiInputImageQuota
 	}
 
+	// xAI input video billing (additive, set by xAI video task adaptor for video edits)
+	xaiInputVideoSeconds := c.GetInt("xai_input_video_seconds")
+	xaiInputVideoPrice := c.GetFloat64("xai_input_video_price")
+	if xaiInputVideoSeconds > 0 && xaiInputVideoPrice > 0 {
+		effectiveGroupRatio := groupRatio
+		if hasUserGroupRatio {
+			effectiveGroupRatio = userGroupRatio
+		}
+		xaiInputVideoQuota := int(xaiInputVideoPrice * float64(xaiInputVideoSeconds) * effectiveGroupRatio * common.QuotaPerUnit)
+		quota += xaiInputVideoQuota
+	}
+
 	if userQuota-quota < 0 {
 		taskErr = service.TaskErrorWrapperLocal(errors.New("user quota is not enough"), "quota_not_enough", http.StatusForbidden)
 		return
@@ -272,6 +287,12 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 					other["xai_input_image"] = true
 					other["xai_input_image_count"] = xaiInputImageCount
 					other["xai_input_image_price"] = xaiInputImagePrice
+				}
+				if xaiInputVideoSeconds > 0 && xaiInputVideoPrice > 0 {
+					logContent = fmt.Sprintf("%s, 输入视频 %d 秒 ($%.4f/秒)", logContent, xaiInputVideoSeconds, xaiInputVideoPrice)
+					other["xai_input_video"] = true
+					other["xai_input_video_seconds"] = xaiInputVideoSeconds
+					other["xai_input_video_price"] = xaiInputVideoPrice
 				}
 				model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 					ChannelId: info.ChannelId,

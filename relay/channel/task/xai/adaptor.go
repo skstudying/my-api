@@ -56,6 +56,7 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		AspectRatio string          `json:"aspect_ratio"`
 		Resolution  string          `json:"resolution"`
 		Image       json.RawMessage `json:"image"`
+		Video       json.RawMessage `json:"video"`
 	}
 	_ = common.UnmarshalBodyReusable(c, &req)
 
@@ -81,11 +82,20 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		c.Set("xai_input_image_price", 0.002)
 	}
 
+	// grok-imagine-video input video billing: $0.01 per second (video edits)
+	if len(req.Video) > 0 {
+		c.Set("xai_input_video_seconds", seconds)
+		c.Set("xai_input_video_price", 0.01)
+	}
+
 	return nil
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	base := strings.TrimSuffix(strings.TrimSuffix(a.baseURL, "/"), "/v1")
+	if info.Action == "editGenerate" {
+		return fmt.Sprintf("%s/v1/videos/edits", base), nil
+	}
 	return fmt.Sprintf("%s/v1/videos/generations", base), nil
 }
 
