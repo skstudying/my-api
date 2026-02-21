@@ -157,8 +157,20 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	if !common.LogConsumeEnabled {
 		return
 	}
-	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
-	username := c.GetString("username")
+	if c != nil {
+		logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
+	} else {
+		common.SysLog(fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
+	}
+	var username string
+	if c != nil {
+		username = c.GetString("username")
+	}
+	if username == "" {
+		if user, err := GetUserById(userId, false); err == nil && user != nil {
+			username = user.Username
+		}
+	}
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -184,7 +196,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		IsStream:         params.IsStream,
 		Group:            params.Group,
 		Ip: func() string {
-			if needRecordIp {
+			if needRecordIp && c != nil {
 				return c.ClientIP()
 			}
 			return ""
@@ -193,7 +205,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	err := LOG_DB.Create(log).Error
 	if err != nil {
-		logger.LogError(c, "failed to record log: "+err.Error())
+		common.SysLog("failed to record log: " + err.Error())
 	}
 	if common.DataExportEnabled {
 		gopool.Go(func() {

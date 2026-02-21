@@ -262,6 +262,60 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 				}
 			}
 		}
+		// xAI video edit: deferred billing with actual duration
+		if string(preStatus) != string(model.TaskStatusSuccess) &&
+			task.Action == constant.TaskActionEdit &&
+			taskResult.Duration > 0 && task.Quota > 0 {
+			const maxDuration = 8.7
+			actualDuration := taskResult.Duration
+			if actualDuration > maxDuration {
+				actualDuration = maxDuration
+			}
+			actualQuota := task.Quota
+			if actualDuration < maxDuration {
+				actualQuota = int(float64(task.Quota) * actualDuration / maxDuration)
+				if actualQuota <= 0 {
+					actualQuota = 1
+				}
+			}
+			refundQuota := task.Quota - actualQuota
+			if refundQuota > 0 {
+				model.IncreaseUserQuota(task.UserId, refundQuota, false)
+				if task.PrivateData.TokenId > 0 && task.PrivateData.TokenKey != "" {
+					model.IncreaseTokenQuota(task.PrivateData.TokenId, task.PrivateData.TokenKey, refundQuota)
+				}
+			}
+			task.Quota = actualQuota
+
+			modelName := task.Properties.OriginModelName
+			modelPrice, _ := ratio_setting.GetModelPrice(modelName, true)
+			groupRatio := ratio_setting.GetGroupRatio(task.Group)
+			logContent := fmt.Sprintf("操作 %s, 实际视频 %.1f 秒, 输入视频 %.1f 秒 ($0.0100/秒)",
+				task.Action, actualDuration, actualDuration)
+			other := map[string]interface{}{
+				"request_path":            "/v1/videos/edits",
+				"model_price":             modelPrice,
+				"group_ratio":             groupRatio,
+				"xai_input_video":         true,
+				"xai_input_video_seconds": actualDuration,
+				"xai_input_video_price":   0.01,
+			}
+			model.RecordConsumeLog(nil, task.UserId, model.RecordConsumeLogParams{
+				ChannelId: task.ChannelId,
+				ModelName: modelName,
+				TokenName: task.PrivateData.TokenName,
+				Quota:     actualQuota,
+				Content:   logContent,
+				TokenId:   task.PrivateData.TokenId,
+				Group:     task.Group,
+				Other:     other,
+			})
+			model.UpdateUserUsedQuotaAndRequestCount(task.UserId, actualQuota)
+			model.UpdateChannelUsedQuota(task.ChannelId, actualQuota)
+			logger.LogInfo(ctx, fmt.Sprintf("[video-edit-billing] task=%s actual=%.1fs quota=%d refund=%d",
+				task.TaskID, actualDuration, actualQuota, refundQuota))
+		}
+
 	case model.TaskStatusFailure:
 		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
 		task.Status = model.TaskStatusFailure
@@ -291,12 +345,15 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 	}
 
 	if shouldRefund {
-		// 任务失败且之前状态不是失败才退还额度，防止重复退还
 		if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
 			logger.LogWarn(ctx, "Failed to increase user quota: "+err.Error())
 		}
+		if task.PrivateData.TokenId > 0 && task.PrivateData.TokenKey != "" {
+			model.IncreaseTokenQuota(task.PrivateData.TokenId, task.PrivateData.TokenKey, quota)
+		}
 		logContent := fmt.Sprintf("Video async task failed %s, refund %s", task.TaskID, logger.LogQuota(quota))
 		model.RecordLog(task.UserId, model.LogTypeSystem, logContent)
+		task.Quota = 0
 	}
 
 	return nil
