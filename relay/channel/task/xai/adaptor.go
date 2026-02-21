@@ -60,13 +60,19 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 	_ = common.UnmarshalBodyReusable(c, &req)
 
+	isVideoEdit := len(req.Video) > 0
+
 	seconds := req.Duration
 	if seconds == 0 {
 		s, _ := strconv.Atoi(req.Seconds)
 		seconds = s
 	}
 	if seconds <= 0 {
-		seconds = 5
+		if isVideoEdit {
+			seconds = 8 // video edits: output duration = input duration, max 8.7s truncated to 8s
+		} else {
+			seconds = 5
+		}
 	}
 
 	info.PriceData.OtherRatios = map[string]float64{
