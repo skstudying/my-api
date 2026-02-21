@@ -473,32 +473,44 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 			if ti.Progress != "" {
 				originTask.Progress = ti.Progress
 			}
-			if ti.Url != "" {
-				if strings.HasPrefix(ti.Url, "data:") {
-				} else {
-					originTask.FailReason = ti.Url
-				}
+			if ti.Url != "" && !strings.HasPrefix(ti.Url, "data:") {
+				originTask.FailReason = ti.Url
+			}
+			if ti.Reason != "" {
+				originTask.FailReason = ti.Reason
 			}
 
-			// Video edit billing adjustment: refund proportionally based on actual duration
-			if prevStatus != model.TaskStatusSuccess &&
-				originTask.Status == model.TaskStatusSuccess &&
+			statusChanged := string(prevStatus) != string(originTask.Status)
+
+			// On success: store poll response as task data (contains duration etc.)
+			if statusChanged && originTask.Status == model.TaskStatusSuccess {
+				originTask.Data = body
+			}
+
+			// xAI video edit billing adjustment on completion
+			if statusChanged && originTask.Status == model.TaskStatusSuccess &&
 				originTask.Action == constant.TaskActionEdit &&
 				ti.Duration > 0 && originTask.Quota > 0 {
 				const maxDuration = 8.7
-				actualDuration := ti.Duration
-				if actualDuration < maxDuration {
-					refundQuota := int(float64(originTask.Quota) * (maxDuration - actualDuration) / maxDuration)
+				if ti.Duration < maxDuration {
+					refundQuota := int(float64(originTask.Quota) * (maxDuration - ti.Duration) / maxDuration)
 					if refundQuota > 0 {
-						err3 := model.IncreaseUserQuota(originTask.UserId, refundQuota, false)
-						if err3 == nil {
+						if err3 := model.IncreaseUserQuota(originTask.UserId, refundQuota, false); err3 == nil {
 							originTask.Quota -= refundQuota
-							common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s actual=%.1fs pre=%.1fs refund=%d final_quota=%d",
-								originTask.TaskID, actualDuration, maxDuration, refundQuota, originTask.Quota))
-						} else {
-							common.SysLog(fmt.Sprintf("[video-edit-billing] refund failed: task=%s err=%v", originTask.TaskID, err3))
+							common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s actual=%.1fs refund=%d final_quota=%d",
+								originTask.TaskID, ti.Duration, refundQuota, originTask.Quota))
 						}
 					}
+				}
+			}
+
+			// xAI video edit full refund on failure
+			if statusChanged && originTask.Status == model.TaskStatusFailure &&
+				originTask.Action == constant.TaskActionEdit &&
+				originTask.Quota > 0 {
+				if err3 := model.IncreaseUserQuota(originTask.UserId, originTask.Quota, false); err3 == nil {
+					common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s failed, full refund=%d", originTask.TaskID, originTask.Quota))
+					originTask.Quota = 0
 				}
 			}
 

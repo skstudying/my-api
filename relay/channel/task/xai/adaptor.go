@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
@@ -61,6 +62,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	_ = common.UnmarshalBodyReusable(c, &req)
 
 	isVideoEdit := len(req.Video) > 0
+
+	// ValidateMultipartDirect overwrites info.Action; restore for video edits
+	if isVideoEdit {
+		info.Action = constant.TaskActionEdit
+	}
 
 	seconds := req.Duration
 	if seconds == 0 {
@@ -188,6 +194,10 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 			Body:       io.NopCloser(strings.NewReader(expired)),
 		}, nil
 	}
+	if resp.StatusCode == http.StatusBadRequest {
+		// Pass through 400 error body for ParseTaskResult to handle as FAILURE
+		return resp, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -205,6 +215,18 @@ func (a *TaskAdaptor) GetChannelName() string {
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+	// Detect xAI error response: {"code":"...","error":"..."}
+	var errResp struct {
+		Code  string `json:"code"`
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
+		return &relaycommon.TaskInfo{
+			Status: model.TaskStatusFailure,
+			Reason: errResp.Error,
+		}, nil
+	}
+
 	var pResp pollResponse
 	if err := common.Unmarshal(respBody, &pResp); err != nil {
 		return nil, fmt.Errorf("unmarshal task result failed: %w", err)
@@ -253,14 +275,22 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	if task.Properties.OriginModelName != "" {
 		ov.Model = task.Properties.OriginModelName
 	}
-	if task.FailReason != "" {
-		if task.Status == model.TaskStatusSuccess {
+	if task.Status == model.TaskStatusSuccess {
+		if task.FailReason != "" {
 			ov.SetMetadata("url", task.FailReason)
-		} else if task.Status == model.TaskStatusFailure {
-			ov.Error = &dto.OpenAIVideoError{
-				Message: task.FailReason,
-				Code:    "generation_failed",
+		}
+		var taskData struct {
+			Video *videoData `json:"video"`
+		}
+		if json.Unmarshal(task.Data, &taskData) == nil && taskData.Video != nil {
+			if taskData.Video.Duration > 0 {
+				ov.SetMetadata("duration", taskData.Video.Duration)
 			}
+		}
+	} else if task.Status == model.TaskStatusFailure && task.FailReason != "" {
+		ov.Error = &dto.OpenAIVideoError{
+			Message: task.FailReason,
+			Code:    "generation_failed",
 		}
 	}
 
