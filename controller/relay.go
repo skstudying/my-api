@@ -522,6 +522,9 @@ func RelayTask(c *gin.Context) {
 	if taskErr == nil {
 		retryTimes = 0
 	}
+	if taskErr != nil && !taskErr.LocalError {
+		processTaskChannelError(c, taskErr)
+	}
 	retryParam := &service.RetryParam{
 		Ctx:        c,
 		TokenGroup: relayInfo.TokenGroup,
@@ -540,7 +543,6 @@ func RelayTask(c *gin.Context) {
 		useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
 		c.Set("use_channel", useChannel)
 		logger.LogInfo(c, fmt.Sprintf("using channel #%d to retry (remain times %d)", channel.Id, retryParam.GetRetry()))
-		//middleware.SetupContextForSelectedChannel(c, channel, originalModel)
 
 		requestBody, err := common.GetRequestBody(c)
 		if err != nil {
@@ -553,6 +555,9 @@ func RelayTask(c *gin.Context) {
 		}
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		taskErr = taskRelayHandler(c, relayInfo)
+		if taskErr != nil && !taskErr.LocalError {
+			processTaskChannelError(c, taskErr)
+		}
 	}
 	useChannel := c.GetStringSlice("use_channel")
 	if len(useChannel) > 1 {
@@ -565,6 +570,21 @@ func RelayTask(c *gin.Context) {
 		}
 		c.JSON(taskErr.StatusCode, taskErr)
 	}
+}
+
+func processTaskChannelError(c *gin.Context, taskErr *dto.TaskError) {
+	channelId := c.GetInt("channel_id")
+	channelType := c.GetInt("channel_type")
+	channelName := c.GetString("channel_name")
+	autoBan := common.GetContextKeyBool(c, constant.ContextKeyChannelAutoBan)
+	isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
+	usingKey := common.GetContextKeyString(c, constant.ContextKeyChannelKey)
+	newAPIError := types.NewErrorWithStatusCode(
+		fmt.Errorf("%s", taskErr.Message),
+		types.ErrorCode(taskErr.Code),
+		taskErr.StatusCode,
+	)
+	processChannelError(c, *types.NewChannelError(channelId, channelType, channelName, isMultiKey, usingKey, autoBan), newAPIError)
 }
 
 func taskRelayHandler(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dto.TaskError {

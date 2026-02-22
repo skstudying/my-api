@@ -10,9 +10,12 @@ import (
 	"strconv"
 	"strings"
 
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -313,6 +316,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	task.Quota = quota
 	task.Data = taskData
 	task.Action = info.Action
+	task.PrivateData.Key = info.ApiKey
 	if info.Action == constant.TaskActionEdit {
 		task.PrivateData.TokenId = info.TokenId
 		task.PrivateData.TokenKey = info.TokenKey
@@ -462,6 +466,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		common.SysLog(fmt.Sprintf("[video-poll] task=%s resp=%s", originTask.TaskID, string(body)))
 		ti, err2 := adaptor.ParseTaskResult(body)
 		if err2 == nil && ti != nil {
+			now := time.Now().Unix()
 			prevStatus := originTask.Status
 			if ti.Status != "" {
 				originTask.Status = model.TaskStatus(ti.Status)
@@ -481,6 +486,19 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 			// On success: store poll response as task data (contains duration etc.)
 			if statusChanged && originTask.Status == model.TaskStatusSuccess {
 				originTask.Data = body
+				originTask.Progress = "100%"
+				if originTask.FinishTime == 0 {
+					originTask.FinishTime = now
+				}
+			}
+
+			// On failure: store error response and finalize task fields
+			if statusChanged && originTask.Status == model.TaskStatusFailure {
+				originTask.Data = body
+				originTask.Progress = "100%"
+				if originTask.FinishTime == 0 {
+					originTask.FinishTime = now
+				}
 			}
 
 			// xAI video edit: deferred billing on success (write real cost instead of pre-charge)
@@ -537,16 +555,17 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 					originTask.TaskID, actualDuration, actualQuota, refundQuota))
 			}
 
-			// xAI video edit: full refund on failure
+			// Full refund on failure for all task types
 			if statusChanged && originTask.Status == model.TaskStatusFailure &&
-				originTask.Action == constant.TaskActionEdit &&
 				originTask.Quota > 0 {
 				refundQuota := originTask.Quota
 				model.IncreaseUserQuota(originTask.UserId, refundQuota, false)
 				if originTask.PrivateData.TokenId > 0 && originTask.PrivateData.TokenKey != "" {
 					model.IncreaseTokenQuota(originTask.PrivateData.TokenId, originTask.PrivateData.TokenKey, refundQuota)
 				}
-				common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s failed, full refund=%d", originTask.TaskID, refundQuota))
+				common.SysLog(fmt.Sprintf("[video-poll-billing] task=%s failed, full refund=%d", originTask.TaskID, refundQuota))
+				logContent := fmt.Sprintf("Video async task failed %s, refund %s", originTask.TaskID, logger.LogQuota(refundQuota))
+				model.RecordLog(originTask.UserId, model.LogTypeSystem, logContent)
 				originTask.Quota = 0
 			}
 

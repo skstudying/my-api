@@ -74,6 +74,35 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 		logger.LogError(ctx, fmt.Sprintf("Task %s not found in taskM", taskId))
 		return fmt.Errorf("task %s not found", taskId)
 	}
+
+	if constant.VideoTaskTimeoutMinutes > 0 && task.SubmitTime > 0 {
+		elapsed := time.Now().Unix() - task.SubmitTime
+		if elapsed > int64(constant.VideoTaskTimeoutMinutes*60) {
+			logger.LogWarn(ctx, fmt.Sprintf("Task %s timed out after %d seconds, marking as failure", taskId, elapsed))
+			preStatus := task.Status
+			task.Status = model.TaskStatusFailure
+			task.Progress = "100%"
+			task.FinishTime = time.Now().Unix()
+			task.FailReason = fmt.Sprintf("task timed out after %d minutes", constant.VideoTaskTimeoutMinutes)
+			quota := task.Quota
+			if quota != 0 && preStatus != model.TaskStatusFailure {
+				task.Quota = 0
+			}
+			if err := task.Update(); err != nil {
+				return fmt.Errorf("update timed out task failed: %w", err)
+			}
+			if quota != 0 && preStatus != model.TaskStatusFailure {
+				model.IncreaseUserQuota(task.UserId, quota, false)
+				if task.PrivateData.TokenId > 0 && task.PrivateData.TokenKey != "" {
+					model.IncreaseTokenQuota(task.PrivateData.TokenId, task.PrivateData.TokenKey, quota)
+				}
+				logContent := fmt.Sprintf("Video task timed out %s, refund %s", task.TaskID, logger.LogQuota(quota))
+				model.RecordLog(task.UserId, model.LogTypeSystem, logContent)
+			}
+			return nil
+		}
+	}
+
 	key := channel.Key
 
 	privateData := task.PrivateData
@@ -329,6 +358,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 		if quota != 0 {
 			if preStatus != model.TaskStatusFailure {
 				shouldRefund = true
+				task.Quota = 0
 			} else {
 				logger.LogWarn(ctx, fmt.Sprintf("Task %s already in failure status, skip refund", task.TaskID))
 			}
@@ -353,7 +383,6 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 		}
 		logContent := fmt.Sprintf("Video async task failed %s, refund %s", task.TaskID, logger.LogQuota(quota))
 		model.RecordLog(task.UserId, model.LogTypeSystem, logContent)
-		task.Quota = 0
 	}
 
 	return nil

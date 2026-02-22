@@ -198,6 +198,18 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		// Pass through 400 error body for ParseTaskResult to handle as FAILURE
 		return resp, nil
 	}
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode/100 == 5 {
+		// Transient errors (429 rate limit, 5xx server errors): return synthetic
+		// "pending" so the task stays in its current state and will be retried.
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		common.SysLog(fmt.Sprintf("xAI video poll transient HTTP %d for task %s: %s", resp.StatusCode, taskID, string(respBody)))
+		pending := `{"status":"pending"}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(pending)),
+		}, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
