@@ -326,6 +326,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 				"request_path":            "/v1/videos/edits",
 				"model_price":             modelPrice,
 				"group_ratio":             groupRatio,
+				"task_id":                 task.TaskID,
 				"xai_input_video":         true,
 				"xai_input_video_seconds": actualDuration,
 				"xai_input_video_price":   0.01,
@@ -385,6 +386,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 					"request_path":            "/v1/videos/edits",
 					"model_price":             modelPrice,
 					"group_ratio":             groupRatio,
+					"task_id":                 task.TaskID,
 					"moderation":              true,
 					"xai_input_video":         true,
 					"xai_input_video_seconds": moderationDuration,
@@ -411,6 +413,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 				logContent := fmt.Sprintf("任务违规(content moderation)，费用不予返还，原始扣费 %s", logger.LogQuota(quota))
 				other := map[string]interface{}{
 					"moderation": true,
+					"task_id":    task.TaskID,
 				}
 				model.RecordConsumeLog(nil, task.UserId, model.RecordConsumeLogParams{
 					ChannelId: task.ChannelId,

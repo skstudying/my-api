@@ -244,6 +244,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 		return
 	}
 
+	var submittedTaskID string
 	defer func() {
 		// release quota
 		if info.ConsumeQuota && taskErr == nil {
@@ -295,6 +296,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 					other["xai_input_image_count"] = xaiInputImageCount
 					other["xai_input_image_price"] = xaiInputImagePrice
 				}
+				if submittedTaskID != "" {
+					other["task_id"] = submittedTaskID
+				}
 				model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 					ChannelId: info.ChannelId,
 					ModelName: modelName,
@@ -315,6 +319,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	if taskErr != nil {
 		return
 	}
+	submittedTaskID = taskID
 	info.ConsumeQuota = true
 	// insert task
 	task := model.InitTask(platform, info)
