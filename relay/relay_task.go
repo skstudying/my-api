@@ -15,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -511,75 +510,25 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 				}
 			}
 
-			// xAI video edit: deferred billing on success (write real cost instead of pre-charge)
-			if statusChanged && originTask.Status == model.TaskStatusSuccess &&
-				originTask.Action == constant.TaskActionEdit &&
-				ti.Duration > 0 && originTask.Quota > 0 {
-				const maxDuration = 8.7
-				actualDuration := ti.Duration
-				if actualDuration > maxDuration {
-					actualDuration = maxDuration
-				}
-				actualQuota := originTask.Quota
-				if actualDuration < maxDuration {
-					actualQuota = int(float64(originTask.Quota) * actualDuration / maxDuration)
-					if actualQuota <= 0 {
-						actualQuota = 1
-					}
-				}
-				refundQuota := originTask.Quota - actualQuota
-				if refundQuota > 0 {
-					model.IncreaseUserQuota(originTask.UserId, refundQuota, false)
-					if originTask.PrivateData.TokenId > 0 && originTask.PrivateData.TokenKey != "" {
-						model.IncreaseTokenQuota(originTask.PrivateData.TokenId, originTask.PrivateData.TokenKey, refundQuota)
-					}
-				}
-				originTask.Quota = actualQuota
-
-				modelName := originTask.Properties.OriginModelName
-				modelPrice, _ := ratio_setting.GetModelPrice(modelName, true)
-				groupRatio := ratio_setting.GetGroupRatio(originTask.Group)
-				logContent := fmt.Sprintf("操作 %s, 实际视频 %.1f 秒, 输入视频 %.1f 秒 ($0.0100/秒)",
-					originTask.Action, actualDuration, actualDuration)
-				other := map[string]interface{}{
-					"request_path":            "/v1/videos/edits",
-					"model_price":             modelPrice,
-					"group_ratio":             groupRatio,
-					"xai_input_video":         true,
-					"xai_input_video_seconds": actualDuration,
-					"xai_input_video_price":   0.01,
-				}
-				model.RecordConsumeLog(c, originTask.UserId, model.RecordConsumeLogParams{
-					ChannelId: originTask.ChannelId,
-					ModelName: modelName,
-					TokenName: originTask.PrivateData.TokenName,
-					Quota:     actualQuota,
-					Content:   logContent,
-					TokenId:   originTask.PrivateData.TokenId,
-					Group:     originTask.Group,
-					Other:     other,
-				})
-				model.UpdateUserUsedQuotaAndRequestCount(originTask.UserId, actualQuota)
-				model.UpdateChannelUsedQuota(originTask.ChannelId, actualQuota)
-				common.SysLog(fmt.Sprintf("[video-edit-billing] task=%s actual=%.1fs quota=%d refund=%d",
-					originTask.TaskID, actualDuration, actualQuota, refundQuota))
-			}
-
-			// Full refund on failure for all task types
-			if statusChanged && originTask.Status == model.TaskStatusFailure &&
-				originTask.Quota > 0 {
-				refundQuota := originTask.Quota
-				model.IncreaseUserQuota(originTask.UserId, refundQuota, false)
-				if originTask.PrivateData.TokenId > 0 && originTask.PrivateData.TokenKey != "" {
-					model.IncreaseTokenQuota(originTask.PrivateData.TokenId, originTask.PrivateData.TokenKey, refundQuota)
-				}
-				common.SysLog(fmt.Sprintf("[video-poll-billing] task=%s failed, full refund=%d", originTask.TaskID, refundQuota))
-				logContent := fmt.Sprintf("Video async task failed %s, refund %s", originTask.TaskID, logger.LogQuota(refundQuota))
-				model.RecordLog(originTask.UserId, model.LogTypeSystem, logContent)
-				originTask.Quota = 0
-			}
-
-			_ = originTask.Update()
+			// [DISABLED] 所有计费/退款逻辑移至后台轮询器 (controller/task_video.go) 独占处理。
+			// 用户查询路径不做 DB 持久化，仅更新内存对象用于构建响应。
+			// 原因：用户查询路径和后台轮询器同时处理状态转变会导致竞态条件，
+			// 产生重复消费日志（edit 任务）或遗漏计费（poller 跳过已更新的任务）。
+			//
+			// // xAI video edit: deferred billing on success
+			// if statusChanged && originTask.Status == model.TaskStatusSuccess &&
+			// 	originTask.Action == constant.TaskActionEdit &&
+			// 	ti.Duration > 0 && originTask.Quota > 0 {
+			// 	... edit billing logic ...
+			// }
+			//
+			// // Full refund on failure for all task types
+			// if statusChanged && originTask.Status == model.TaskStatusFailure &&
+			// 	originTask.Quota > 0 {
+			// 	... refund logic ...
+			// }
+			//
+			// _ = originTask.Update()
 			var raw map[string]any
 			_ = json.Unmarshal(body, &raw)
 			format := "mp4"

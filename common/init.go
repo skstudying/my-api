@@ -136,7 +136,7 @@ func initConstantEnv() {
 	// 任务轮询时查询的最大数量
 	constant.TaskQueryLimit = GetEnvOrDefault("TASK_QUERY_LIMIT", 1000)
 	// 视频任务超时时间（分钟），超时后自动标记为失败并退款，0 表示不超时
-	constant.VideoTaskTimeoutMinutes = GetEnvOrDefault("VIDEO_TASK_TIMEOUT_MINUTES", 15)
+	constant.VideoTaskTimeoutMinutes = GetEnvOrDefault("VIDEO_TASK_TIMEOUT_MINUTES", 180)
 
 	soraPatchStr := GetEnvOrDefaultString("TASK_PRICE_PATCH", "")
 	if soraPatchStr != "" {

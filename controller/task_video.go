@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -355,7 +356,75 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 		task.FailReason = taskResult.Reason
 		logger.LogInfo(ctx, fmt.Sprintf("Task %s failed: %s", task.TaskID, task.FailReason))
 		taskResult.Progress = "100%"
-		if quota != 0 {
+
+		isModeration := strings.Contains(strings.ToLower(taskResult.Reason), "content moderation")
+
+		if isModeration && quota != 0 && preStatus != model.TaskStatusFailure {
+			if task.Action == constant.TaskActionEdit {
+				// Edit moderation: xAI charges full amount. Bill at 8 seconds (output + input).
+				moderationDuration := 8.0
+				moderationQuota := int(float64(task.Quota) * moderationDuration / 8.7)
+				if moderationQuota <= 0 {
+					moderationQuota = 1
+				}
+				refundDiff := task.Quota - moderationQuota
+				if refundDiff > 0 {
+					model.IncreaseUserQuota(task.UserId, refundDiff, false)
+					if task.PrivateData.TokenId > 0 && task.PrivateData.TokenKey != "" {
+						model.IncreaseTokenQuota(task.PrivateData.TokenId, task.PrivateData.TokenKey, refundDiff)
+					}
+				}
+				task.Quota = moderationQuota
+
+				modelName := task.Properties.OriginModelName
+				modelPrice, _ := ratio_setting.GetModelPrice(modelName, true)
+				groupRatio := ratio_setting.GetGroupRatio(task.Group)
+				logContent := fmt.Sprintf("操作 %s (内容审核扣费), 视频 %.1f 秒, 输入视频 %.1f 秒 ($0.0100/秒)",
+					task.Action, moderationDuration, moderationDuration)
+				other := map[string]interface{}{
+					"request_path":            "/v1/videos/edits",
+					"model_price":             modelPrice,
+					"group_ratio":             groupRatio,
+					"moderation":              true,
+					"xai_input_video":         true,
+					"xai_input_video_seconds": moderationDuration,
+					"xai_input_video_price":   0.01,
+				}
+				model.RecordConsumeLog(nil, task.UserId, model.RecordConsumeLogParams{
+					ChannelId: task.ChannelId,
+					ModelName: modelName,
+					TokenName: task.PrivateData.TokenName,
+					Quota:     moderationQuota,
+					Content:   logContent,
+					TokenId:   task.PrivateData.TokenId,
+					Group:     task.Group,
+					Other:     other,
+				})
+				model.UpdateUserUsedQuotaAndRequestCount(task.UserId, moderationQuota)
+				model.UpdateChannelUsedQuota(task.ChannelId, moderationQuota)
+				logger.LogInfo(ctx, fmt.Sprintf("[video-edit-moderation] task=%s duration=%.1fs quota=%d refund_diff=%d",
+					task.TaskID, moderationDuration, moderationQuota, refundDiff))
+			} else {
+				// Non-edit moderation: charge already logged at submission, don't refund.
+				// Record a zero-quota informational consumption log.
+				modelName := task.Properties.OriginModelName
+				logContent := fmt.Sprintf("任务违规(content moderation)，费用不予返还，原始扣费 %s", logger.LogQuota(quota))
+				other := map[string]interface{}{
+					"moderation": true,
+				}
+				model.RecordConsumeLog(nil, task.UserId, model.RecordConsumeLogParams{
+					ChannelId: task.ChannelId,
+					ModelName: modelName,
+					TokenName: task.PrivateData.TokenName,
+					Quota:     0,
+					Content:   logContent,
+					TokenId:   task.PrivateData.TokenId,
+					Group:     task.Group,
+					Other:     other,
+				})
+				logger.LogInfo(ctx, fmt.Sprintf("[video-moderation] task=%s kept charge, quota=%d", task.TaskID, task.Quota))
+			}
+		} else if !isModeration && quota != 0 {
 			if preStatus != model.TaskStatusFailure {
 				shouldRefund = true
 				task.Quota = 0

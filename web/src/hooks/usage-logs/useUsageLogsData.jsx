@@ -406,7 +406,9 @@ export const useLogsData = () => {
           });
         }
         let content = '';
-        if (other?.xai_input_video && other?.xai_input_video_seconds > 0) {
+        if (other?.moderation && logs[i].quota === 0) {
+          content = t('任务违规(content moderation)，费用不予返还');
+        } else if (other?.xai_input_video && other?.xai_input_video_seconds > 0) {
           content = renderVideoEditPrice(
             other?.model_price || 0,
             other?.group_ratio,
@@ -491,6 +493,12 @@ export const useLogsData = () => {
           key: t('计费过程'),
           value: content,
         });
+        if (other?.moderation) {
+          expandDataLocal.push({
+            key: t('内容审核'),
+            value: t('任务被内容审核拦截，费用不予返还'),
+          });
+        }
         if (other?.xai_input_image && other?.xai_input_image_count > 0) {
           expandDataLocal.push({
             key: t('xAI 输入图片'),
