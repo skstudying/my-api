@@ -316,7 +316,6 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	task.Quota = quota
 	task.Data = taskData
 	task.Action = info.Action
-	task.PrivateData.Key = info.ApiKey
 	if info.Action == constant.TaskActionEdit {
 		task.PrivateData.TokenId = info.TokenId
 		task.PrivateData.TokenKey = info.TokenKey
