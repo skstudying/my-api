@@ -36,6 +36,8 @@ import {
   renderAudioModelPrice,
   renderClaudeModelPrice,
   renderModelPrice,
+  renderVideoEditPrice,
+  renderVideoGenerationPrice,
 } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
@@ -404,7 +406,25 @@ export const useLogsData = () => {
           });
         }
         let content = '';
-        if (other?.ws || other?.audio) {
+        if (other?.xai_input_video && other?.xai_input_video_seconds > 0) {
+          content = renderVideoEditPrice(
+            other?.model_price || 0,
+            other?.group_ratio,
+            other?.user_group_ratio,
+            other.xai_input_video_seconds,
+            other.xai_input_video_price || 0,
+          );
+        } else if (other?.xai_video_generation && other?.xai_video_seconds > 0) {
+          content = renderVideoGenerationPrice(
+            other?.model_price || 0,
+            other?.group_ratio,
+            other?.user_group_ratio,
+            other.xai_video_seconds,
+            other?.xai_video_resolution_ratio || 1,
+            other?.xai_input_image_count || 0,
+            other?.xai_input_image_price || 0,
+          );
+        } else if (other?.ws || other?.audio) {
           content = renderAudioModelPrice(
             other?.text_input,
             other?.text_output,
@@ -475,12 +495,6 @@ export const useLogsData = () => {
           expandDataLocal.push({
             key: t('xAI 输入图片'),
             value: `${other.xai_input_image_count} 张，$${other.xai_input_image_price?.toFixed(4)}/张`,
-          });
-        }
-        if (other?.xai_input_video && other?.xai_input_video_seconds > 0) {
-          expandDataLocal.push({
-            key: t('xAI 输入视频'),
-            value: `${other.xai_input_video_seconds} 秒，$${other.xai_input_video_price?.toFixed(4)}/秒`,
           });
         }
         if (other?.reasoning_effort) {

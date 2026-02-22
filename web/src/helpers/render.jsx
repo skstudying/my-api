@@ -1166,6 +1166,103 @@ function renderPriceSimpleCore({
   return result;
 }
 
+export function renderVideoEditPrice(
+  modelPrice,
+  groupRatio,
+  userGroupRatio,
+  videoSeconds,
+  inputVideoPrice,
+) {
+  const { ratio: effectiveGroupRatio, label: ratioLabel } = getEffectiveRatio(
+    groupRatio,
+    userGroupRatio,
+  );
+  const { symbol, rate } = getCurrencyConfig();
+
+  const outputPerSec = modelPrice * rate;
+  const inputPerSec = inputVideoPrice * rate;
+  const outputTotal = modelPrice * videoSeconds * rate;
+  const inputTotal = inputVideoPrice * videoSeconds * rate;
+  const subtotal = outputTotal + inputTotal;
+  const total = subtotal * effectiveGroupRatio;
+
+  let result = '';
+  result += i18next.t('输出视频：{{symbol}}{{perSec}}/秒 × {{seconds}} 秒 = {{symbol}}{{sub}}', {
+    symbol, perSec: outputPerSec.toFixed(4), seconds: videoSeconds.toFixed(1), sub: outputTotal.toFixed(6),
+  });
+  result += '\n\r';
+  result += i18next.t('输入视频：{{symbol}}{{perSec}}/秒 × {{seconds}} 秒 = {{symbol}}{{sub}}', {
+    symbol, perSec: inputPerSec.toFixed(4), seconds: videoSeconds.toFixed(1), sub: inputTotal.toFixed(6),
+  });
+  result += '\n\r';
+  result += i18next.t('({{symbol}}{{output}} + {{symbol}}{{input}}) × {{ratioType}} {{ratio}} = {{symbol}}{{total}}', {
+    symbol, output: outputTotal.toFixed(6), input: inputTotal.toFixed(6),
+    ratioType: ratioLabel, ratio: effectiveGroupRatio, total: total.toFixed(6),
+  });
+  return result;
+}
+
+export function renderVideoGenerationPrice(
+  modelPrice,
+  groupRatio,
+  userGroupRatio,
+  videoSeconds,
+  resolutionRatio = 1,
+  inputImageCount = 0,
+  inputImagePrice = 0,
+) {
+  const { ratio: effectiveGroupRatio, label: ratioLabel } = getEffectiveRatio(
+    groupRatio,
+    userGroupRatio,
+  );
+  const { symbol, rate } = getCurrencyConfig();
+
+  const perSecond = modelPrice * rate;
+  const videoBase = perSecond * videoSeconds;
+  let videoSubtotal = videoBase;
+
+  let result = '';
+  result += i18next.t('视频生成：{{symbol}}{{perSec}}/秒 × {{seconds}} 秒 = {{symbol}}{{sub}}', {
+    symbol, perSec: perSecond.toFixed(4), seconds: videoSeconds.toFixed(1), sub: videoBase.toFixed(6),
+  });
+
+  if (resolutionRatio > 1) {
+    videoSubtotal = videoBase * resolutionRatio;
+    result += '\n\r';
+    result += i18next.t('分辨率(720p)：× {{ratio}} = {{symbol}}{{sub}}', {
+      symbol, ratio: resolutionRatio, sub: videoSubtotal.toFixed(6),
+    });
+  }
+
+  let imageTotal = 0;
+  if (inputImageCount > 0 && inputImagePrice > 0) {
+    const imagePerUnit = inputImagePrice * rate;
+    imageTotal = imagePerUnit * inputImageCount;
+    result += '\n\r';
+    result += i18next.t('输入图片：{{count}} 张 × {{symbol}}{{price}}/张 = {{symbol}}{{sub}}', {
+      symbol, count: inputImageCount, price: imagePerUnit.toFixed(4), sub: imageTotal.toFixed(6),
+    });
+  }
+
+  const subtotal = videoSubtotal + imageTotal;
+  const total = subtotal * effectiveGroupRatio;
+
+  result += '\n\r';
+  if (imageTotal > 0) {
+    result += i18next.t('({{symbol}}{{video}} + {{symbol}}{{image}}) × {{ratioType}} {{ratio}} = {{symbol}}{{total}}', {
+      symbol, video: videoSubtotal.toFixed(6), image: imageTotal.toFixed(6),
+      ratioType: ratioLabel, ratio: effectiveGroupRatio, total: total.toFixed(6),
+    });
+  } else {
+    result += i18next.t('{{symbol}}{{sub}} × {{ratioType}} {{ratio}} = {{symbol}}{{total}}', {
+      symbol, sub: subtotal.toFixed(6),
+      ratioType: ratioLabel, ratio: effectiveGroupRatio, total: total.toFixed(6),
+    });
+  }
+
+  return result;
+}
+
 export function renderModelPrice(
   inputTokens,
   completionTokens,

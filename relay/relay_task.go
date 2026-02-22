@@ -282,6 +282,14 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 				if hasUserGroupRatio {
 					other["user_group_ratio"] = userGroupRatio
 				}
+				if seconds, ok := info.PriceData.OtherRatios["seconds"]; ok && seconds > 0 {
+					other["xai_video_generation"] = true
+					other["xai_video_seconds"] = seconds
+				}
+				if resRatio, ok := info.PriceData.OtherRatios["resolution(720p)"]; ok && resRatio > 1 {
+					other["xai_video_resolution_720p"] = true
+					other["xai_video_resolution_ratio"] = resRatio
+				}
 				if xaiInputImageCount > 0 && xaiInputImagePrice > 0 {
 					logContent = fmt.Sprintf("%s, 输入图片 %d 张 ($%.4f/张)", logContent, xaiInputImageCount, xaiInputImagePrice)
 					other["xai_input_image"] = true
@@ -428,6 +436,9 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 	}
 
 	func() {
+		if originTask.Status == model.TaskStatusSuccess || originTask.Status == model.TaskStatusFailure {
+			return
+		}
 		channelModel, err2 := model.GetChannelById(originTask.ChannelId, true)
 		if err2 != nil {
 			common.SysLog(fmt.Sprintf("[video-poll] GetChannelById(%d) failed: %v", originTask.ChannelId, err2))
