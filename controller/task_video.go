@@ -319,7 +319,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 
 			modelName := task.Properties.OriginModelName
 			modelPrice, success := ratio_setting.GetModelPrice(modelName, true)
-			if !success {
+			if !success || modelPrice < 0 {
 				if dp, ok := ratio_setting.GetDefaultModelPriceMap()[modelName]; ok {
 					modelPrice = dp
 				}
@@ -384,7 +384,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 
 				modelName := task.Properties.OriginModelName
 				modelPrice, success := ratio_setting.GetModelPrice(modelName, true)
-				if !success {
+				if !success || modelPrice < 0 {
 					if dp, ok := ratio_setting.GetDefaultModelPriceMap()[modelName]; ok {
 						modelPrice = dp
 					}
