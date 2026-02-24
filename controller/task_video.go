@@ -318,7 +318,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 			task.Quota = actualQuota
 
 			modelName := task.Properties.OriginModelName
-			modelPrice, _ := ratio_setting.GetModelPrice(modelName, true)
+			modelPrice, success := ratio_setting.GetModelPrice(modelName, true)
+			if !success {
+				if dp, ok := ratio_setting.GetDefaultModelPriceMap()[modelName]; ok {
+					modelPrice = dp
+				}
+			}
 			groupRatio := ratio_setting.GetGroupRatio(task.Group)
 			logContent := fmt.Sprintf("操作 %s, 实际视频 %.1f 秒, 输入视频 %.1f 秒 ($0.0100/秒)",
 				task.Action, actualDuration, actualDuration)
@@ -378,7 +383,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor channel.TaskAdaptor, cha
 				task.Quota = moderationQuota
 
 				modelName := task.Properties.OriginModelName
-				modelPrice, _ := ratio_setting.GetModelPrice(modelName, true)
+				modelPrice, success := ratio_setting.GetModelPrice(modelName, true)
+				if !success {
+					if dp, ok := ratio_setting.GetDefaultModelPriceMap()[modelName]; ok {
+						modelPrice = dp
+					}
+				}
 				groupRatio := ratio_setting.GetGroupRatio(task.Group)
 				logContent := fmt.Sprintf("操作 %s (内容审核扣费), 视频 %.1f 秒, 输入视频 %.1f 秒 ($0.0100/秒)",
 					task.Action, moderationDuration, moderationDuration)
