@@ -321,8 +321,8 @@ type GeminiChatTool struct {
 
 type GeminiChatGenerationConfig struct {
 	Temperature        *float64              `json:"temperature,omitempty"`
-	TopP               float64               `json:"topP,omitempty"`
-	TopK               float64               `json:"topK,omitempty"`
+	TopP               *float64              `json:"topP,omitempty"`
+	TopK               *float64              `json:"topK,omitempty"`
 	MaxOutputTokens    uint                  `json:"maxOutputTokens,omitempty"`
 	CandidateCount     int                   `json:"candidateCount,omitempty"`
 	StopSequences      []string              `json:"stopSequences,omitempty"`
@@ -334,7 +334,7 @@ type GeminiChatGenerationConfig struct {
 	ResponseLogprobs   bool                  `json:"responseLogprobs,omitempty"`
 	Logprobs           *int32                `json:"logprobs,omitempty"`
 	MediaResolution    MediaResolution       `json:"mediaResolution,omitempty"`
-	Seed               int64                 `json:"seed,omitempty"`
+	Seed               *int64                `json:"seed,omitempty"`
 	ResponseModalities []string              `json:"responseModalities,omitempty"`
 	ThinkingConfig     *GeminiThinkingConfig `json:"thinkingConfig,omitempty"`
 	SpeechConfig       json.RawMessage       `json:"speechConfig,omitempty"` // RawMessage to allow flexible speech config
