@@ -535,6 +535,7 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 	type Alias TaskSubmitReq
 	aux := &struct {
 		Metadata json.RawMessage `json:"metadata,omitempty"`
+		Image    json.RawMessage `json:"image,omitempty"`
 		*Alias
 	}{
 		Alias: (*Alias)(t),
@@ -542,6 +543,21 @@ func (t *TaskSubmitReq) UnmarshalJSON(data []byte) error {
 
 	if err := common.Unmarshal(data, &aux); err != nil {
 		return err
+	}
+
+	// image: accept both "url" (string) and {"url": "..."} (object)
+	if len(aux.Image) > 0 {
+		var imageStr string
+		if json.Unmarshal(aux.Image, &imageStr) == nil {
+			t.Image = imageStr
+		} else {
+			var imageObj struct {
+				URL string `json:"url"`
+			}
+			if json.Unmarshal(aux.Image, &imageObj) == nil {
+				t.Image = imageObj.URL
+			}
+		}
 	}
 
 	if len(aux.Metadata) > 0 {
