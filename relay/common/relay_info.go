@@ -54,6 +54,56 @@ type ResponsesUsageInfo struct {
 	BuiltInTools map[string]*BuildInToolInfo
 }
 
+// IncrementToolCall maps a response output call type (e.g. "web_search_call")
+// back to the registered request tool type and increments its call count.
+// Returns true if a matching tool was found and incremented.
+func (r *ResponsesUsageInfo) IncrementToolCall(callType string) bool {
+	if r == nil || r.BuiltInTools == nil {
+		return false
+	}
+	toolType := r.resolveToolType(callType)
+	if toolType == "" {
+		return false
+	}
+	if tool, ok := r.BuiltInTools[toolType]; ok && tool != nil {
+		tool.CallCount++
+		return true
+	}
+	return false
+}
+
+// resolveToolType maps a response output item type to the corresponding
+// registered request tool type, supporting both OpenAI and xAI conventions.
+func (r *ResponsesUsageInfo) resolveToolType(callType string) string {
+	switch callType {
+	case dto.BuildInCallWebSearchCall: // "web_search_call"
+		// xAI uses "web_search", OpenAI uses "web_search_preview"
+		if _, ok := r.BuiltInTools[dto.BuildInToolXaiWebSearch]; ok {
+			return dto.BuildInToolXaiWebSearch
+		}
+		if _, ok := r.BuiltInTools[dto.BuildInToolWebSearchPreview]; ok {
+			return dto.BuildInToolWebSearchPreview
+		}
+	case dto.BuildInCallXSearchCall: // "x_search_call"
+		return dto.BuildInToolXaiXSearch
+	case dto.BuildInCallCodeInterpreterCall: // "code_interpreter_call"
+		if _, ok := r.BuiltInTools[dto.BuildInToolXaiCodeInterpreter]; ok {
+			return dto.BuildInToolXaiCodeInterpreter
+		}
+		if _, ok := r.BuiltInTools[dto.BuildInToolXaiCodeExecution]; ok {
+			return dto.BuildInToolXaiCodeExecution
+		}
+	case dto.BuildInCallFileSearchCall: // "file_search_call"
+		if _, ok := r.BuiltInTools[dto.BuildInToolFileSearch]; ok {
+			return dto.BuildInToolFileSearch
+		}
+		if _, ok := r.BuiltInTools[dto.BuildInToolXaiCollectionsSearch]; ok {
+			return dto.BuildInToolXaiCollectionsSearch
+		}
+	}
+	return ""
+}
+
 type ChannelMeta struct {
 	ChannelType          int
 	ChannelId            int

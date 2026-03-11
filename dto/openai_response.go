@@ -356,10 +356,25 @@ type ResponsesOutputContent struct {
 const (
 	BuildInToolWebSearchPreview = "web_search_preview"
 	BuildInToolFileSearch       = "file_search"
+
+	// xAI built-in tool types (as specified in request tools array)
+	// https://docs.x.ai/developers/models#tools-pricing
+	BuildInToolXaiWebSearch         = "web_search"
+	BuildInToolXaiXSearch           = "x_search"
+	BuildInToolXaiCodeExecution     = "code_execution"
+	BuildInToolXaiCodeInterpreter   = "code_interpreter"
+	BuildInToolXaiCollectionsSearch = "collections_search"
+	BuildInToolXaiAttachmentSearch  = "attachment_search"
 )
 
 const (
 	BuildInCallWebSearchCall = "web_search_call"
+
+	// xAI response output types (from response.output[].type)
+	// https://docs.x.ai/developers/tools/tool-usage-details
+	BuildInCallXSearchCall         = "x_search_call"
+	BuildInCallCodeInterpreterCall = "code_interpreter_call"
+	BuildInCallFileSearchCall      = "file_search_call"
 )
 
 const (

@@ -316,6 +316,31 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 				fileSearchTool.CallCount, dFileSearchQuota.String()))
 		}
 	}
+	// xAI server-side tool billing (web_search, x_search, code_execution, etc.)
+	// https://docs.x.ai/developers/models#tools-pricing
+	var dXaiToolsQuota decimal.Decimal
+	var xaiToolsDetails []string
+	if relayInfo.ResponsesUsageInfo != nil {
+		for toolName, tool := range relayInfo.ResponsesUsageInfo.BuiltInTools {
+			if tool == nil || tool.CallCount == 0 {
+				continue
+			}
+			price := operation_setting.GetXaiToolPricePerThousand(toolName)
+			if price <= 0 {
+				continue
+			}
+			toolQuota := decimal.NewFromFloat(price).
+				Mul(decimal.NewFromInt(int64(tool.CallCount))).
+				Div(decimal.NewFromInt(1000)).Mul(dGroupRatio).Mul(dQuotaPerUnit)
+			dXaiToolsQuota = dXaiToolsQuota.Add(toolQuota)
+			xaiToolsDetails = append(xaiToolsDetails, fmt.Sprintf("xAI %s 调用 %d 次，$%.2f/千次，花费 %s",
+				toolName, tool.CallCount, price, toolQuota.String()))
+		}
+		if len(xaiToolsDetails) > 0 {
+			extraContent = append(extraContent, xaiToolsDetails...)
+		}
+	}
+
 	var dImageGenerationCallQuota decimal.Decimal
 	var imageGenerationCallPrice float64
 	if ctx.GetBool("image_generation_call") {
@@ -400,6 +425,9 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		var completionImageTokensWithRatio decimal.Decimal
 		if !dCompletionImageTokens.IsZero() {
 			baseCompletionTokens = baseCompletionTokens.Sub(dCompletionImageTokens)
+			if baseCompletionTokens.LessThan(decimal.Zero) {
+				baseCompletionTokens = decimal.Zero
+			}
 			completionImageTokensWithRatio = dCompletionImageTokens.Mul(dImageOutputRatio)
 		}
 
@@ -416,6 +444,8 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 	// 添加 responses tools call 调用的配额
 	quotaCalculateDecimal = quotaCalculateDecimal.Add(dWebSearchQuota)
 	quotaCalculateDecimal = quotaCalculateDecimal.Add(dFileSearchQuota)
+	// 添加 xAI 工具调用计费
+	quotaCalculateDecimal = quotaCalculateDecimal.Add(dXaiToolsQuota)
 	// 添加 audio input 独立计费
 	quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
 	// 添加 image generation call 计费
@@ -538,6 +568,23 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 	if !dImageGenerationCallQuota.IsZero() {
 		other["image_generation_call"] = true
 		other["image_generation_call_price"] = imageGenerationCallPrice
+	}
+	if !dXaiToolsQuota.IsZero() && relayInfo.ResponsesUsageInfo != nil {
+		xaiToolsMap := make(map[string]any)
+		for toolName, tool := range relayInfo.ResponsesUsageInfo.BuiltInTools {
+			if tool == nil || tool.CallCount == 0 {
+				continue
+			}
+			price := operation_setting.GetXaiToolPricePerThousand(toolName)
+			if price <= 0 {
+				continue
+			}
+			xaiToolsMap[toolName] = map[string]any{
+				"call_count": tool.CallCount,
+				"price":      price,
+			}
+		}
+		other["xai_tools"] = xaiToolsMap
 	}
 	if !dXaiInputImageQuota.IsZero() {
 		other["xai_input_image"] = true

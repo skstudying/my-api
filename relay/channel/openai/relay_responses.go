@@ -56,14 +56,9 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
 		return &usage, nil
 	}
-	// 解析 Tools 用量
-	for _, tool := range responsesResponse.Tools {
-		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[common.Interface2String(tool["type"])]
-		if !ok || buildToolinfo == nil {
-			logger.LogError(c, fmt.Sprintf("BuiltInTools not found for tool type: %v", tool["type"]))
-			continue
-		}
-		buildToolinfo.CallCount++
+	// Count actual tool calls from output items (e.g. web_search_call, x_search_call)
+	for _, output := range responsesResponse.Output {
+		info.ResponsesUsageInfo.IncrementToolCall(output.Type)
 	}
 	return &usage, nil
 }
@@ -112,16 +107,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				// 处理输出文本
 				responseTextBuilder.WriteString(streamResponse.Delta)
 			case dto.ResponsesOutputTypeItemDone:
-				// 函数调用处理
-				if streamResponse.Item != nil {
-					switch streamResponse.Item.Type {
-					case dto.BuildInCallWebSearchCall:
-						if info != nil && info.ResponsesUsageInfo != nil && info.ResponsesUsageInfo.BuiltInTools != nil {
-							if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearchPreview]; exists && webSearchTool != nil {
-								webSearchTool.CallCount++
-							}
-						}
-					}
+				if streamResponse.Item != nil && info != nil && info.ResponsesUsageInfo != nil {
+					info.ResponsesUsageInfo.IncrementToolCall(streamResponse.Item.Type)
 				}
 			}
 		} else {

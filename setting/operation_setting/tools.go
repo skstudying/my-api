@@ -37,8 +37,37 @@ const (
 	ClaudeWebSearchPrice = 10.00
 )
 
+// xAI server-side tool pricing ($ per 1k calls)
+// https://docs.x.ai/developers/models#tools-pricing
+const (
+	XaiWebSearchPrice         = 5.00
+	XaiXSearchPrice           = 5.00
+	XaiCodeExecutionPrice     = 5.00
+	XaiAttachmentSearchPrice  = 10.00
+	XaiCollectionsSearchPrice = 2.50
+)
+
 func GetClaudeWebSearchPricePerThousand() float64 {
 	return ClaudeWebSearchPrice
+}
+
+// GetXaiToolPricePerThousand returns the per-1k-call price for an xAI tool type.
+// Returns 0 for token-based tools (view_image, view_x_video, MCP) and unknown types.
+func GetXaiToolPricePerThousand(toolType string) float64 {
+	switch toolType {
+	case "web_search":
+		return XaiWebSearchPrice
+	case "x_search":
+		return XaiXSearchPrice
+	case "code_execution", "code_interpreter":
+		return XaiCodeExecutionPrice
+	case "attachment_search":
+		return XaiAttachmentSearchPrice
+	case "collections_search":
+		return XaiCollectionsSearchPrice
+	default:
+		return 0
+	}
 }
 
 func GetWebSearchPricePerThousand(modelName string, contextSize string) float64 {
