@@ -248,16 +248,24 @@ var defaultModelRatio = map[string]float64{
 	"llama-3-sonar-large-32k-chat":   1 / 1000 * USD,
 	"llama-3-sonar-large-32k-online": 1 / 1000 * USD,
 	// grok
-	"grok-3-beta":           1.5,
-	"grok-3-mini-beta":      0.15,
-	"grok-2":                1,
-	"grok-2-vision":         1,
-	"grok-beta":             2.5,
-	"grok-vision-beta":      2.5,
-	"grok-3-fast-beta":      2.5,
-	"grok-3-mini-fast-beta": 0.3,
-	"grok-4":               1.5,
-	"grok-4-0709":          1.5,
+	"grok-4.20-multi-agent-beta-0309":      1.0, // $2.00/M in, $6.00/M out
+	"grok-4.20-beta-0309-reasoning":        1.0,
+	"grok-4.20-beta-0309-non-reasoning":    1.0,
+	"grok-4.20-beta-latest-reasoning":      1.0,
+	"grok-4.20-beta-latest-non-reasoning":  1.0,
+	"grok-4-1-fast-reasoning":              0.1, // $0.20/M in, $0.50/M out
+	"grok-4-1-fast-non-reasoning":          0.1,
+	"grok-code-fast-1":                     0.1, // $0.20/M in, $1.50/M out
+	"grok-3-beta":                          1.5,
+	"grok-3-mini-beta":                     0.15,
+	"grok-2":                               1,
+	"grok-2-vision":                        1,
+	"grok-beta":                            2.5,
+	"grok-vision-beta":                     2.5,
+	"grok-3-fast-beta":                     2.5,
+	"grok-3-mini-fast-beta":                0.3,
+	"grok-4":                               1.5,
+	"grok-4-0709":                          1.5,
 	// submodel
 	"NousResearch/Hermes-4-405B-FP8":          0.8,
 	"Qwen/Qwen3-235B-A22B-Thinking-2507":      0.6,
@@ -341,6 +349,17 @@ var defaultCompletionRatio = map[string]float64{
 	"gpt-4o-gizmo-*": 3,
 	"gpt-4-all":      2,
 	"gpt-image-1":    8,
+	// grok-4.20 series: $6.00 out / $2.00 in = 3.0
+	"grok-4.20-multi-agent-beta-0309":     3,
+	"grok-4.20-beta-0309-reasoning":       3,
+	"grok-4.20-beta-0309-non-reasoning":   3,
+	"grok-4.20-beta-latest-reasoning":     3,
+	"grok-4.20-beta-latest-non-reasoning": 3,
+	// grok-4-1-fast: $0.50 out / $0.20 in = 2.5
+	"grok-4-1-fast-reasoning":     2.5,
+	"grok-4-1-fast-non-reasoning": 2.5,
+	// grok-code-fast-1: $1.50 out / $0.20 in = 7.5
+	"grok-code-fast-1": 7.5,
 }
 
 // InitRatioSettings initializes all model related settings maps

@@ -58,6 +58,17 @@ var defaultCacheRatio = map[string]float64{
 	"claude-sonnet-4-5-20250929-thinking": 0.1,
 	"claude-opus-4-5-20251101":            0.1,
 	"claude-opus-4-5-20251101-thinking":   0.1,
+	// grok-4.20: cached $0.20/M / input $2.00/M = 0.1
+	"grok-4.20-multi-agent-beta-0309":     0.1,
+	"grok-4.20-beta-0309-reasoning":       0.1,
+	"grok-4.20-beta-0309-non-reasoning":   0.1,
+	"grok-4.20-beta-latest-reasoning":     0.1,
+	"grok-4.20-beta-latest-non-reasoning": 0.1,
+	// grok-4-1-fast: cached $0.05/M / input $0.20/M = 0.25
+	"grok-4-1-fast-reasoning":     0.25,
+	"grok-4-1-fast-non-reasoning": 0.25,
+	// grok-code-fast-1: cached $0.02/M / input $0.20/M = 0.1
+	"grok-code-fast-1": 0.1,
 }
 
 var defaultCreateCacheRatio = map[string]float64{

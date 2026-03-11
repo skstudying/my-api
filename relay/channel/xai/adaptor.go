@@ -148,8 +148,7 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	// TODO implement me
-	return nil, errors.New("not implemented")
+	return request, nil
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
@@ -160,6 +159,12 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	switch info.RelayMode {
 	case constant.RelayModeImagesGenerations, constant.RelayModeImagesEdits:
 		usage, err = openai.OpenaiHandlerWithUsage(c, info, resp)
+	case constant.RelayModeResponses:
+		if info.IsStream {
+			usage, err = openai.OaiResponsesStreamHandler(c, info, resp)
+		} else {
+			usage, err = openai.OaiResponsesHandler(c, info, resp)
+		}
 	default:
 		if info.IsStream {
 			usage, err = xAIStreamHandler(c, info, resp)
