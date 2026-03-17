@@ -28,6 +28,10 @@ data/
 .gocache-temp
 .gopath
 
+# 脚本与测试（含密钥/接口信息）
+scripts/
+tester/
+
 # 编译产物 - Go 可执行文件
 grok-api
 volc-api
