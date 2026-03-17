@@ -58,8 +58,37 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		Resolution  string          `json:"resolution"`
 		Image       json.RawMessage `json:"image"`
 		Video       json.RawMessage `json:"video"`
+		Metadata    json.RawMessage `json:"metadata"`
 	}
 	_ = common.UnmarshalBodyReusable(c, &req)
+
+	// OpenAI 兼容格式: duration/image/resolution/video 嵌套在 metadata 中,
+	// 当顶层字段缺失时从 metadata 中读取
+	if len(req.Metadata) > 0 {
+		var meta struct {
+			Duration    json.Number     `json:"duration"`
+			AspectRatio string          `json:"aspect_ratio"`
+			Resolution  string          `json:"resolution"`
+			Image       json.RawMessage `json:"image"`
+			Video       json.RawMessage `json:"video"`
+		}
+		if json.Unmarshal(req.Metadata, &meta) == nil {
+			if req.Duration == 0 && req.Seconds == "" && meta.Duration != "" {
+				if d, err := meta.Duration.Int64(); err == nil {
+					req.Duration = int(d)
+				}
+			}
+			if len(req.Image) == 0 && len(meta.Image) > 0 {
+				req.Image = meta.Image
+			}
+			if len(req.Video) == 0 && len(meta.Video) > 0 {
+				req.Video = meta.Video
+			}
+			if req.Resolution == "" && meta.Resolution != "" {
+				req.Resolution = meta.Resolution
+			}
+		}
+	}
 
 	isVideoEdit := len(req.Video) > 0
 
@@ -123,6 +152,26 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, fmt.Errorf("get request body failed: %w", err)
 	}
+
+	// OpenAI 兼容格式: 将 metadata 中的字段提升到顶层, 确保上游 xAI 原生 API 能正确接收
+	var bodyMap map[string]json.RawMessage
+	if json.Unmarshal(cachedBody, &bodyMap) == nil {
+		if metaRaw, ok := bodyMap["metadata"]; ok && len(metaRaw) > 0 {
+			var metaMap map[string]json.RawMessage
+			if json.Unmarshal(metaRaw, &metaMap) == nil {
+				for k, v := range metaMap {
+					if _, exists := bodyMap[k]; !exists {
+						bodyMap[k] = v
+					}
+				}
+				delete(bodyMap, "metadata")
+				if converted, err := json.Marshal(bodyMap); err == nil {
+					return bytes.NewReader(converted), nil
+				}
+			}
+		}
+	}
+
 	return bytes.NewReader(cachedBody), nil
 }
 
