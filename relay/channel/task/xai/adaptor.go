@@ -25,10 +25,11 @@ type submitResponse struct {
 }
 
 type pollResponse struct {
-	Status string     `json:"status"` // pending, done, expired
+	Status string     `json:"status"` // pending, done, expired, error, ...
 	Video  *videoData `json:"video,omitempty"`
 	Model  string     `json:"model,omitempty"`
 	Usage  *usageData `json:"usage,omitempty"`
+	Error  string     `json:"error,omitempty"`
 }
 
 type usageData struct {
@@ -361,6 +362,14 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 				costUSD := float64(pResp.Usage.CostInUsdTicks) / 1e10
 				taskResult.CostQuota = int(costUSD * common.QuotaPerUnit)
 			}
+		} else if pResp.Status != "" {
+			// 非预期状态（如 "error"）且没有视频数据，标记为失败
+			reason := pResp.Error
+			if reason == "" {
+				reason = fmt.Sprintf("unexpected status: %s", pResp.Status)
+			}
+			taskResult.Status = model.TaskStatusFailure
+			taskResult.Reason = reason
 		} else {
 			taskResult.Status = model.TaskStatusQueued
 		}
