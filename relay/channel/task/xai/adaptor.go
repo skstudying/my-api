@@ -53,6 +53,9 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
+	// 保存原始 action，因为 ValidateMultipartDirect 会覆盖它
+	originalAction := info.Action
+
 	if taskErr := relaycommon.ValidateMultipartDirect(c, info); taskErr != nil {
 		return taskErr
 	}
@@ -101,8 +104,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		}
 	}
 
-	isVideoEdit := len(req.Video) > 0 && info.Action != constant.TaskActionExtend
-	isVideoExtend := info.Action == constant.TaskActionExtend
+	isVideoEdit := len(req.Video) > 0 && originalAction != constant.TaskActionExtend
+	isVideoExtend := originalAction == constant.TaskActionExtend
 
 	// ValidateMultipartDirect overwrites info.Action; restore for video edits
 	if isVideoEdit {
