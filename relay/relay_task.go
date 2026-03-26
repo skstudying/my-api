@@ -41,6 +41,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	if strings.HasSuffix(path, "/videos/edits") {
 		info.Action = constant.TaskActionEdit
 	}
+	if strings.HasSuffix(path, "/videos/extensions") {
+		info.Action = constant.TaskActionExtend
+	}
 
 	// 提取 remix 任务的 video_id
 	if info.Action == constant.TaskActionRemix {
@@ -254,7 +257,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 				common.SysLog("error consuming token remain quota: " + err.Error())
 			}
 			// Video edit: defer billing log to task completion (actual duration known then)
-			if quota != 0 && info.Action != constant.TaskActionEdit {
+			if quota != 0 && info.Action != constant.TaskActionEdit && info.Action != constant.TaskActionExtend {
 				tokenName := c.GetString("token_name")
 				logContent := fmt.Sprintf("操作 %s", info.Action)
 				// FIXME: 临时修补，支持任务仅按次计费
@@ -328,7 +331,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 	task.Quota = quota
 	task.Data = taskData
 	task.Action = info.Action
-	if info.Action == constant.TaskActionEdit {
+	if info.Action == constant.TaskActionEdit || info.Action == constant.TaskActionExtend {
 		task.PrivateData.TokenId = info.TokenId
 		task.PrivateData.TokenKey = info.TokenKey
 		task.PrivateData.TokenName = c.GetString("token_name")

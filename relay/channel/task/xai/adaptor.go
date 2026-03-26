@@ -28,6 +28,11 @@ type pollResponse struct {
 	Status string     `json:"status"` // pending, done, expired
 	Video  *videoData `json:"video,omitempty"`
 	Model  string     `json:"model,omitempty"`
+	Usage  *usageData `json:"usage,omitempty"`
+}
+
+type usageData struct {
+	CostInUsdTicks int64 `json:"cost_in_usd_ticks"`
 }
 
 type videoData struct {
@@ -52,25 +57,27 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 
 	var req struct {
-		Duration    int             `json:"duration"`
-		Seconds     string          `json:"seconds"`
-		AspectRatio string          `json:"aspect_ratio"`
-		Resolution  string          `json:"resolution"`
-		Image       json.RawMessage `json:"image"`
-		Video       json.RawMessage `json:"video"`
-		Metadata    json.RawMessage `json:"metadata"`
+		Duration        int             `json:"duration"`
+		Seconds         string          `json:"seconds"`
+		AspectRatio     string          `json:"aspect_ratio"`
+		Resolution      string          `json:"resolution"`
+		Image           json.RawMessage `json:"image"`
+		Video           json.RawMessage `json:"video"`
+		ReferenceImages json.RawMessage `json:"reference_images"`
+		Metadata        json.RawMessage `json:"metadata"`
 	}
 	_ = common.UnmarshalBodyReusable(c, &req)
 
-	// OpenAI 兼容格式: duration/image/resolution/video 嵌套在 metadata 中,
+	// OpenAI 兼容格式: duration/image/resolution/video/reference_images 嵌套在 metadata 中,
 	// 当顶层字段缺失时从 metadata 中读取
 	if len(req.Metadata) > 0 {
 		var meta struct {
-			Duration    json.Number     `json:"duration"`
-			AspectRatio string          `json:"aspect_ratio"`
-			Resolution  string          `json:"resolution"`
-			Image       json.RawMessage `json:"image"`
-			Video       json.RawMessage `json:"video"`
+			Duration        json.Number     `json:"duration"`
+			AspectRatio     string          `json:"aspect_ratio"`
+			Resolution      string          `json:"resolution"`
+			Image           json.RawMessage `json:"image"`
+			Video           json.RawMessage `json:"video"`
+			ReferenceImages json.RawMessage `json:"reference_images"`
 		}
 		if json.Unmarshal(req.Metadata, &meta) == nil {
 			if req.Duration == 0 && req.Seconds == "" && meta.Duration != "" {
@@ -84,17 +91,24 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 			if len(req.Video) == 0 && len(meta.Video) > 0 {
 				req.Video = meta.Video
 			}
+			if len(req.ReferenceImages) == 0 && len(meta.ReferenceImages) > 0 {
+				req.ReferenceImages = meta.ReferenceImages
+			}
 			if req.Resolution == "" && meta.Resolution != "" {
 				req.Resolution = meta.Resolution
 			}
 		}
 	}
 
-	isVideoEdit := len(req.Video) > 0
+	isVideoEdit := len(req.Video) > 0 && info.Action != constant.TaskActionExtend
+	isVideoExtend := info.Action == constant.TaskActionExtend
 
 	// ValidateMultipartDirect overwrites info.Action; restore for video edits
 	if isVideoEdit {
 		info.Action = constant.TaskActionEdit
+	}
+	if isVideoExtend {
+		info.Action = constant.TaskActionExtend
 	}
 
 	seconds := req.Duration
@@ -103,7 +117,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 		seconds = s
 	}
 	if seconds <= 0 {
-		seconds = 5
+		if isVideoExtend {
+			seconds = 6 // extension default duration
+		} else {
+			seconds = 5
+		}
 	}
 
 	billingSeconds := float64(seconds)
@@ -114,18 +132,34 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	info.PriceData.OtherRatios = map[string]float64{
 		"seconds": billingSeconds,
 	}
-	if req.Resolution == "720p" {
+	// extension 不支持 resolution 参数，输出匹配输入分辨率；默认按 480p 计费
+	if !isVideoExtend && req.Resolution == "720p" {
 		info.PriceData.OtherRatios["resolution(720p)"] = 1.4 // $0.07 / $0.05 = 1.4
 	}
 
 	// grok-imagine-video input image billing: $0.002 per input image
-	if len(req.Image) > 0 {
+	// reference_images (up to 7) takes priority; fallback to single image
+	if len(req.ReferenceImages) > 0 {
+		var refImages []json.RawMessage
+		if json.Unmarshal(req.ReferenceImages, &refImages) == nil && len(refImages) > 0 {
+			count := len(refImages)
+			if count > 7 {
+				count = 7
+			}
+			c.Set("xai_input_image_count", count)
+			c.Set("xai_input_image_price", 0.002)
+		}
+	} else if len(req.Image) > 0 {
 		c.Set("xai_input_image_count", 1)
 		c.Set("xai_input_image_price", 0.002)
 	}
 
-	// grok-imagine-video input video billing: $0.01 per second (video edits)
+	// grok-imagine-video input video billing: $0.01 per second (video edits and extensions)
 	if isVideoEdit {
+		c.Set("xai_input_video_seconds", billingSeconds)
+		c.Set("xai_input_video_price", 0.01)
+	}
+	if isVideoExtend {
 		c.Set("xai_input_video_seconds", billingSeconds)
 		c.Set("xai_input_video_price", 0.01)
 	}
@@ -135,10 +169,14 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	base := strings.TrimSuffix(strings.TrimSuffix(a.baseURL, "/"), "/v1")
-	if info.Action == "editGenerate" {
+	switch info.Action {
+	case constant.TaskActionEdit:
 		return fmt.Sprintf("%s/v1/videos/edits", base), nil
+	case constant.TaskActionExtend:
+		return fmt.Sprintf("%s/v1/videos/extensions", base), nil
+	default:
+		return fmt.Sprintf("%s/v1/videos/generations", base), nil
 	}
-	return fmt.Sprintf("%s/v1/videos/generations", base), nil
 }
 
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
@@ -306,6 +344,11 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 			taskResult.Url = pResp.Video.URL
 			taskResult.Duration = pResp.Video.Duration
 		}
+		// cost_in_usd_ticks: 4800000000 = $0.48 → quota = 0.48 * QuotaPerUnit
+		if pResp.Usage != nil && pResp.Usage.CostInUsdTicks > 0 {
+			costUSD := float64(pResp.Usage.CostInUsdTicks) / 1e10
+			taskResult.CostQuota = int(costUSD * common.QuotaPerUnit)
+		}
 	case "expired":
 		taskResult.Status = model.TaskStatusFailure
 		taskResult.Reason = "request expired"
@@ -314,6 +357,10 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 			taskResult.Status = model.TaskStatusSuccess
 			taskResult.Url = pResp.Video.URL
 			taskResult.Duration = pResp.Video.Duration
+			if pResp.Usage != nil && pResp.Usage.CostInUsdTicks > 0 {
+				costUSD := float64(pResp.Usage.CostInUsdTicks) / 1e10
+				taskResult.CostQuota = int(costUSD * common.QuotaPerUnit)
+			}
 		} else {
 			taskResult.Status = model.TaskStatusQueued
 		}

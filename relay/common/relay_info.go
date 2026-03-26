@@ -654,6 +654,7 @@ type TaskInfo struct {
 	CompletionTokens int     `json:"completion_tokens,omitempty"` // 用于按倍率计费
 	TotalTokens      int     `json:"total_tokens,omitempty"`      // 用于按倍率计费
 	Duration         float64 `json:"duration,omitempty"`          // actual video duration (seconds)
+	CostQuota        int     `json:"cost_quota,omitempty"`        // xAI cost_in_usd_ticks converted to quota
 }
 
 func FailTaskInfo(reason string) *TaskInfo {
