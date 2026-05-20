@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -16,6 +17,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func storeRawUsage(c *gin.Context, data string) {
+	if data == "" {
+		return
+	}
+	var raw struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(data), &raw); err == nil && len(raw.Usage) > 0 && string(raw.Usage) != "null" {
+		c.Set(string(constant.ContextKeyRawUpstreamUsage), raw.Usage)
+	}
+}
+
+func storeRawUsageFromBody(c *gin.Context, body []byte) {
+	if len(body) == 0 {
+		return
+	}
+	var raw struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &raw); err == nil && len(raw.Usage) > 0 && string(raw.Usage) != "null" {
+		c.Set(string(constant.ContextKeyRawUpstreamUsage), raw.Usage)
+	}
+}
 
 func streamResponseXAI2OpenAI(xAIResp *dto.ChatCompletionsStreamResponse, usage *dto.Usage) *dto.ChatCompletionsStreamResponse {
 	if xAIResp == nil {
@@ -52,12 +77,14 @@ func xAIStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			return true
 		}
 
-		// 把 xAI 的usage转换为 OpenAI 的usage
 		if xAIResp.Usage != nil {
 			containStreamUsage = true
 			usage.PromptTokens = xAIResp.Usage.PromptTokens
 			usage.TotalTokens = xAIResp.Usage.TotalTokens
 			usage.CompletionTokens = usage.TotalTokens - usage.PromptTokens
+			usage.PromptTokensDetails = xAIResp.Usage.PromptTokensDetails
+			usage.CompletionTokenDetails = xAIResp.Usage.CompletionTokenDetails
+			storeRawUsage(c, data)
 		}
 
 		openaiResponse := streamResponseXAI2OpenAI(xAIResp, usage)
@@ -91,12 +118,14 @@ func xAIHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
+	storeRawUsageFromBody(c, responseBody)
 	if xaiResponse.Usage != nil {
 		xaiResponse.Usage.CompletionTokens = xaiResponse.Usage.TotalTokens - xaiResponse.Usage.PromptTokens
-		xaiResponse.Usage.CompletionTokenDetails.TextTokens = xaiResponse.Usage.CompletionTokens - xaiResponse.Usage.CompletionTokenDetails.ReasoningTokens
+		if xaiResponse.Usage.CompletionTokenDetails.ReasoningTokens > 0 {
+			xaiResponse.Usage.CompletionTokenDetails.TextTokens = xaiResponse.Usage.CompletionTokens - xaiResponse.Usage.CompletionTokenDetails.ReasoningTokens
+		}
 	}
 
-	// new body
 	encodeJson, err := common.Marshal(xaiResponse)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)

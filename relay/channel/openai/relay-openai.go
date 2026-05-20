@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -156,6 +157,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		if err == nil && streamResp.Usage != nil && service.ValidUsage(streamResp.Usage) {
 			usage = streamResp.Usage
 			containStreamUsage = true
+			extractAndStoreRawUsage(c, secondLastStreamData)
 
 			if common.DebugEnabled {
 				logger.LogDebug(c, fmt.Sprintf("Audio model usage extracted from second last SSE: PromptTokens=%d, CompletionTokens=%d, TotalTokens=%d, InputTokens=%d, OutputTokens=%d",
@@ -170,6 +172,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	if err := handleLastResponse(lastStreamData, &responseId, &createAt, &systemFingerprint, &model, &usage,
 		&containStreamUsage, info, &shouldSendLastResp); err != nil {
 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
+	}
+
+	if containStreamUsage {
+		extractAndStoreRawUsage(c, lastStreamData)
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
@@ -254,6 +260,10 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
+
+	if !usageModified {
+		extractAndStoreRawUsageFromBody(c, responseBody)
+	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
@@ -590,6 +600,7 @@ func OpenaiHandlerWithUsage(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		}
 	}
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+	extractAndStoreRawUsageFromBody(c, responseBody)
 	return &usageResp.Usage, nil
 }
 
@@ -688,4 +699,32 @@ func extractMoonshotCachedTokensFromBody(body []byte) (int, bool) {
 	}
 
 	return 0, false
+}
+
+// extractAndStoreRawUsage extracts the raw "usage" field from the upstream response
+// and stores it in the gin context for later use in logging.
+func extractAndStoreRawUsage(c *gin.Context, data string) {
+	if data == "" {
+		return
+	}
+	var raw struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	if err := json.Unmarshal(common.StringToByteSlice(data), &raw); err == nil && len(raw.Usage) > 0 && string(raw.Usage) != "null" {
+		c.Set(string(constant.ContextKeyRawUpstreamUsage), raw.Usage)
+	}
+}
+
+// extractAndStoreRawUsageFromBody extracts the raw "usage" field from a response body
+// and stores it in the gin context for later use in logging.
+func extractAndStoreRawUsageFromBody(c *gin.Context, body []byte) {
+	if len(body) == 0 {
+		return
+	}
+	var raw struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &raw); err == nil && len(raw.Usage) > 0 && string(raw.Usage) != "null" {
+		c.Set(string(constant.ContextKeyRawUpstreamUsage), raw.Usage)
+	}
 }

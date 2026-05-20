@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -591,7 +592,14 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		other["xai_input_image_count"] = xaiInputImageCount
 		other["xai_input_image_price"] = xaiInputImagePrice
 	}
-	if upstreamUsage := service.BuildUpstreamUsageInfo(usage, relayInfo.ChannelType); upstreamUsage != nil {
+	if rawUsage, exists := ctx.Get(string(constant.ContextKeyRawUpstreamUsage)); exists {
+		if rawJSON, ok := rawUsage.(json.RawMessage); ok {
+			var usageMap map[string]interface{}
+			if json.Unmarshal(rawJSON, &usageMap) == nil {
+				other["usage"] = usageMap
+			}
+		}
+	} else if upstreamUsage := service.BuildUpstreamUsageInfo(usage, relayInfo.ChannelType); upstreamUsage != nil {
 		other["usage"] = upstreamUsage
 	}
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
