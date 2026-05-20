@@ -1126,6 +1126,7 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			geminiResponse.UsageMetadata.PromptTokenCount != 0 ||
 			geminiResponse.UsageMetadata.CandidatesTokenCount != 0 ||
 			geminiResponse.UsageMetadata.ThoughtsTokenCount != 0 ||
+			geminiResponse.UsageMetadata.CachedContentTokenCount != 0 ||
 			len(geminiResponse.UsageMetadata.PromptTokensDetails) > 0 ||
 			len(geminiResponse.UsageMetadata.CandidatesTokensDetails) > 0 {
 			usage.PromptTokens = geminiResponse.UsageMetadata.PromptTokenCount

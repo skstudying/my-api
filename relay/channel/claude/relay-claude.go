@@ -613,13 +613,18 @@ func FormatClaudeResponseInfo(requestMode int, claudeResponse *dto.ClaudeRespons
 		} else if claudeResponse.Type == "message_delta" {
 			// 最终的usage获取
 			if claudeResponse.Usage.InputTokens > 0 {
-				// 不叠加，只取最新的
 				claudeInfo.Usage.PromptTokens = claudeResponse.Usage.InputTokens
 			}
 			claudeInfo.Usage.CompletionTokens = claudeResponse.Usage.OutputTokens
 			claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
+			// 更新缓存信息（如果message_delta中包含）
+			if claudeResponse.Usage.CacheReadInputTokens > 0 {
+				claudeInfo.Usage.PromptTokensDetails.CachedTokens = claudeResponse.Usage.CacheReadInputTokens
+			}
+			if claudeResponse.Usage.CacheCreationInputTokens > 0 {
+				claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens = claudeResponse.Usage.CacheCreationInputTokens
+			}
 
-			// 判断是否完整
 			claudeInfo.Done = true
 		} else if claudeResponse.Type == "content_block_start" {
 		} else {

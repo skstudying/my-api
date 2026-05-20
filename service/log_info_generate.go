@@ -118,6 +118,124 @@ func GenerateClaudeOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	return info
 }
 
+// BuildUpstreamUsageInfo reconstructs the upstream usage info in the provider's native format.
+// Returns nil if no meaningful usage data is available.
+func BuildUpstreamUsageInfo(usage *dto.Usage, channelType int) map[string]interface{} {
+	if usage == nil || (usage.PromptTokens == 0 && usage.CompletionTokens == 0 && usage.TotalTokens == 0) {
+		return nil
+	}
+
+	switch channelType {
+	case constant.ChannelTypeAnthropic, constant.ChannelTypeAws:
+		// Anthropic Claude format
+		result := map[string]interface{}{
+			"input_tokens":  usage.PromptTokens,
+			"output_tokens": usage.CompletionTokens,
+		}
+		if usage.PromptTokensDetails.CachedTokens > 0 {
+			result["cache_read_input_tokens"] = usage.PromptTokensDetails.CachedTokens
+		}
+		if usage.PromptTokensDetails.CachedCreationTokens > 0 {
+			result["cache_creation_input_tokens"] = usage.PromptTokensDetails.CachedCreationTokens
+		}
+		if usage.ClaudeCacheCreation5mTokens > 0 {
+			if cacheCreation, ok := result["cache_creation"].(map[string]interface{}); ok {
+				cacheCreation["ephemeral_5m_input_tokens"] = usage.ClaudeCacheCreation5mTokens
+			} else {
+				result["cache_creation"] = map[string]interface{}{
+					"ephemeral_5m_input_tokens": usage.ClaudeCacheCreation5mTokens,
+				}
+			}
+		}
+		if usage.ClaudeCacheCreation1hTokens > 0 {
+			if cacheCreation, ok := result["cache_creation"].(map[string]interface{}); ok {
+				cacheCreation["ephemeral_1h_input_tokens"] = usage.ClaudeCacheCreation1hTokens
+			} else {
+				result["cache_creation"] = map[string]interface{}{
+					"ephemeral_1h_input_tokens": usage.ClaudeCacheCreation1hTokens,
+				}
+			}
+		}
+		return result
+
+	case constant.ChannelTypeGemini, constant.ChannelTypeVertexAi:
+		// Google Gemini usageMetadata format
+		result := map[string]interface{}{
+			"promptTokenCount":     usage.PromptTokens,
+			"candidatesTokenCount": usage.CompletionTokens,
+			"totalTokenCount":      usage.TotalTokens,
+		}
+		if usage.PromptTokensDetails.CachedTokens > 0 {
+			result["cachedContentTokenCount"] = usage.PromptTokensDetails.CachedTokens
+		}
+		if usage.CompletionTokenDetails.ReasoningTokens > 0 {
+			result["thoughtsTokenCount"] = usage.CompletionTokenDetails.ReasoningTokens
+		}
+		if usage.PromptTokensDetails.AudioTokens > 0 || usage.PromptTokensDetails.TextTokens > 0 || usage.PromptTokensDetails.ImageTokens > 0 {
+			var details []map[string]interface{}
+			if usage.PromptTokensDetails.TextTokens > 0 {
+				details = append(details, map[string]interface{}{"modality": "TEXT", "tokenCount": usage.PromptTokensDetails.TextTokens})
+			}
+			if usage.PromptTokensDetails.ImageTokens > 0 {
+				details = append(details, map[string]interface{}{"modality": "IMAGE", "tokenCount": usage.PromptTokensDetails.ImageTokens})
+			}
+			if usage.PromptTokensDetails.AudioTokens > 0 {
+				details = append(details, map[string]interface{}{"modality": "AUDIO", "tokenCount": usage.PromptTokensDetails.AudioTokens})
+			}
+			result["promptTokensDetails"] = details
+		}
+		if usage.CompletionTokenDetails.AudioTokens > 0 || usage.CompletionTokenDetails.TextTokens > 0 || usage.CompletionTokenDetails.ImageTokens > 0 {
+			var details []map[string]interface{}
+			if usage.CompletionTokenDetails.TextTokens > 0 {
+				details = append(details, map[string]interface{}{"modality": "TEXT", "tokenCount": usage.CompletionTokenDetails.TextTokens})
+			}
+			if usage.CompletionTokenDetails.ImageTokens > 0 {
+				details = append(details, map[string]interface{}{"modality": "IMAGE", "tokenCount": usage.CompletionTokenDetails.ImageTokens})
+			}
+			if usage.CompletionTokenDetails.AudioTokens > 0 {
+				details = append(details, map[string]interface{}{"modality": "AUDIO", "tokenCount": usage.CompletionTokenDetails.AudioTokens})
+			}
+			result["candidatesTokensDetails"] = details
+		}
+		return result
+
+	default:
+		// OpenAI format (default for OpenAI, Azure, DeepSeek, Zhipu, Moonshot, xAI, etc.)
+		result := map[string]interface{}{
+			"prompt_tokens":     usage.PromptTokens,
+			"completion_tokens": usage.CompletionTokens,
+			"total_tokens":      usage.TotalTokens,
+		}
+		promptDetails := make(map[string]interface{})
+		if usage.PromptTokensDetails.CachedTokens > 0 {
+			promptDetails["cached_tokens"] = usage.PromptTokensDetails.CachedTokens
+		}
+		if usage.PromptTokensDetails.AudioTokens > 0 {
+			promptDetails["audio_tokens"] = usage.PromptTokensDetails.AudioTokens
+		}
+		if usage.PromptTokensDetails.ImageTokens > 0 {
+			promptDetails["image_tokens"] = usage.PromptTokensDetails.ImageTokens
+		}
+		if len(promptDetails) > 0 {
+			result["prompt_tokens_details"] = promptDetails
+		}
+		completionDetails := make(map[string]interface{})
+		if usage.CompletionTokenDetails.ReasoningTokens > 0 {
+			completionDetails["reasoning_tokens"] = usage.CompletionTokenDetails.ReasoningTokens
+		}
+		if usage.CompletionTokenDetails.AudioTokens > 0 {
+			completionDetails["audio_tokens"] = usage.CompletionTokenDetails.AudioTokens
+		}
+		if usage.CompletionTokenDetails.ImageTokens > 0 {
+			completionDetails["image_tokens"] = usage.CompletionTokenDetails.ImageTokens
+		}
+		if len(completionDetails) > 0 {
+			result["completion_tokens_details"] = completionDetails
+		}
+		return result
+	}
+}
+
 func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData types.PerCallPriceData) map[string]interface{} {
 	other := make(map[string]interface{})
 	other["model_price"] = priceData.ModelPrice

@@ -591,6 +591,9 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		other["xai_input_image_count"] = xaiInputImageCount
 		other["xai_input_image_price"] = xaiInputImagePrice
 	}
+	if upstreamUsage := service.BuildUpstreamUsageInfo(usage, relayInfo.ChannelType); upstreamUsage != nil {
+		other["usage"] = upstreamUsage
+	}
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     promptTokens,
